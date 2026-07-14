@@ -71,6 +71,17 @@ void UNOpenGLESRenderDevice::InternalClassInitializer( UClass* Class )
 	unguardSlow;
 }
 
+//
+// UT-era static construction hook; InternalClassInitializer is a UE1-v200-era
+// mechanism that nothing calls in this engine generation.
+//
+void UNOpenGLESRenderDevice::StaticConstructor()
+{
+	guard(UNOpenGLESRenderDevice::StaticConstructor);
+	InternalClassInitializer( GetClass() );
+	unguard;
+}
+
 UNOpenGLESRenderDevice::UNOpenGLESRenderDevice()
 {
 	DetailTextures = true;
@@ -618,7 +629,15 @@ UNOpenGLESRenderDevice::FCachedShader* UNOpenGLESRenderDevice::CreateShader( DWO
 		0, SF_Texture0, SF_Texture1, SF_Texture2, SF_Texture3, SF_VtxColor, SF_VtxFog
 	};
 
-	static const char* ShaderVersion = "#version 100\n";
+	// The shader sources are written in GLES2 GLSL (#version 100).  On a
+	// desktop GL context (e.g. macOS, where SDL cannot create a GLES context),
+	// compile them as GLSL 120 instead and stub out the ES precision
+	// qualifiers, which desktop GLSL does not accept.
+	const char* GLVersion = (const char*)glGetString( GL_VERSION );
+	const UBOOL IsGLES = GLVersion && !appStrncmp( GLVersion, "OpenGL ES", 9 );
+	static const char* ShaderVersionES      = "#version 100\n";
+	static const char* ShaderVersionDesktop = "#version 120\n#define lowp\n#define mediump\n#define highp\n";
+	const char* ShaderVersion = IsGLES ? ShaderVersionES : ShaderVersionDesktop;
 
 	FCachedShader NewShaderValue;
 	NewShaderValue.Flags = ShaderFlags;

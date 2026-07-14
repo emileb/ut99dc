@@ -140,6 +140,7 @@ class CORE_API UStruct : public UField
 	UTextBuffer*		ScriptText;
 	UField*				Children;
 	INT					PropertiesSize;
+	INT					IntrinsicSize;		// sizeof() of the mirrored C++ class for intrinsic classes, 0 otherwise. Not serialized.
 	FName				FriendlyName;
 	TArray<BYTE>		Script;
 
@@ -428,6 +429,7 @@ class CORE_API UClass : public UState
 
 	// In memory only.
 	FString				DefaultPropText;
+	const TCHAR*		NativeConfigNameStash;	// Holds the config name string between static construction and Register(); ClassConfigName is a 4-byte FName, too small for a pointer on 64-bit.
 
 	// Constructors.
 	UClass();

@@ -6,10 +6,14 @@ Revision history:
 	* Created by Brandon Reinhart.
 =============================================================================*/
 
-#include "LaunchPrivate.h"
+// SDL (and its transitive system headers) must come before the engine
+// headers, whose clock(Timer) macro in UnFile.h would otherwise mangle
+// time.h's clock().
 #ifdef PLATFORM_SDL
 #include <SDL2/SDL.h>
 #endif
+#include <limits.h>
+#include "LaunchPrivate.h"
 /*-----------------------------------------------------------------------------
 	Global variables.
 -----------------------------------------------------------------------------*/

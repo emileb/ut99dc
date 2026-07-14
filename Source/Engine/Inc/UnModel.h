@@ -13,8 +13,13 @@
 //
 // Model objects are used for brushes and for the level itself.
 //
+#ifdef PLATFORM_DREAMCAST
 enum {MAX_NODES  = 4096};
 enum {MAX_POINTS = 8192};
+#else
+enum {MAX_NODES  = 30000};
+enum {MAX_POINTS = 30000};
+#endif
 class ENGINE_API UModel : public UPrimitive
 {
 #ifndef NODECALS

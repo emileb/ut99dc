@@ -170,6 +170,10 @@ UNSDLViewport::UNSDLViewport( ULevel* InLevel, UNSDLClient* InClient )
 {
 	guard(UNSDLViewport::UNSDLViewport);
 
+	// Fill in the scancode translation map.  (InternalClassInitializer is a
+	// UE1-v200-era hook that nothing calls in this engine generation.)
+	InitKeyMap();
+
 	// Set color bytes based on screen resolution.
 	SDL_DisplayMode Mode;
 	SDL_GetDesktopDisplayMode( InClient->DefaultDisplay, &Mode );
@@ -413,6 +417,11 @@ void UNSDLViewport::OpenWindow( DWORD InParentWindow, UBOOL Temporary, INT NewX,
 				}
 			}
 			SDL_GL_MakeCurrent( hWnd, GLCtx );
+			// Enable vsync: ULevel::Tick clamps the frame delta to a minimum
+			// of 0.005s, so an uncapped frame rate (thousands of fps on a
+			// modern GPU) makes game time run many times faster than real
+			// time.
+			SDL_GL_SetSwapInterval( 1 );
 		}
 		else
 		{
@@ -859,6 +868,13 @@ UBOOL UNSDLViewport::TickInput()
 				break;
 			case SDL_MOUSEBUTTONDOWN:
 			case SDL_MOUSEBUTTONUP:
+				// Clicking in the window captures the mouse for mouselook in
+				// windowed mode.  (UGameEngine::Tick only enables capture on a
+				// paused->unpaused transition, which misses the initial state
+				// and silently fails when the window lacks mouse focus.)
+				if( Ev.type == SDL_MOUSEBUTTONDOWN && !SDL_GetRelativeMouseMode()
+					&& Client->CaptureMouse && Actor && !Actor->bShowMenu )
+					SetMouseCapture( 1, 1, 0 );
 				CauseInputEvent( MouseButtonMap[Ev.button.button], ( Ev.type == SDL_MOUSEBUTTONDOWN ) ? IST_Press : IST_Release );
 				break;
 			case SDL_MOUSEWHEEL:

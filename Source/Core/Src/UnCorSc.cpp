@@ -343,14 +343,16 @@ void UObject::execBoolVariable( FFrame& Stack, RESULT_DECL )
 {
 	guardSlow(UObject::execBoolVariable);
 
-	// Get bool variable.
+	// Get bool variable.  The following variable opcode's operand is a 4-byte
+	// GObjObjects index (see XFER_OBJ in UStruct::SerializeExpr), not a pointer.
 	BYTE B = *Stack.Code++;
 #ifdef PLATFORM_DREAMCAST
-	UBoolProperty* Property;
-	__builtin_memcpy( &Property, Stack.Code, sizeof( Property ) );
+	INT PropIndex;
+	__builtin_memcpy( &PropIndex, Stack.Code, sizeof( PropIndex ) );
 #else
-	UBoolProperty* Property = *(UBoolProperty**)Stack.Code;
+	INT PropIndex = *(INT*)Stack.Code;
 #endif
+	UBoolProperty* Property = (UBoolProperty*)UObject::GetIndexedObject( PropIndex );
 	(this->*GNatives[B])( Stack, NULL );
 	GProperty = Property;
 

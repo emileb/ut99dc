@@ -642,7 +642,9 @@ void UObjectProperty::Link( FArchive& Ar, UProperty* Prev )
 	guard(UObjectProperty::Link);
 	Super::Link( Ar, Prev );
 	ElementSize = sizeof(UObject*);
-	Offset      = Align( GetOuterUField()->GetPropertiesSize(), sizeof(UObject*) );
+	// Native class mirrors are compiled with #pragma pack(4), so pointers stay
+	// 4-aligned even when they are 8 bytes wide.
+	Offset      = Align( GetOuterUField()->GetPropertiesSize(), PROPERTY_ALIGNMENT );
 	unguardobj;
 }
 void UObjectProperty::CopySingleValue( void* Dest, void* Src ) const

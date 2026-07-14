@@ -131,14 +131,17 @@ inline INT FFrame::ReadInt()
 }
 inline UObject* FFrame::ReadObject()
 {
+	// Bytecode object references are stored as 4-byte GObjObjects indices
+	// (see XFER_OBJ in UStruct::SerializeExpr), never as raw pointers, so the
+	// in-memory bytecode layout is identical on 32- and 64-bit machines.
 #ifdef PLATFORM_DREAMCAST
-	UObject* Result;
-	__builtin_memcpy( &Result, Code, sizeof( Result ) );
+	INT Index;
+	__builtin_memcpy( &Index, Code, sizeof( Index ) );
 #else
-	UObject* Result = *(UObject**)Code;
+	INT Index = *(INT*)Code;
 #endif
 	Code += sizeof(INT);
-	return Result;
+	return UObject::GetIndexedObject( Index );
 }
 inline FLOAT FFrame::ReadFloat()
 {

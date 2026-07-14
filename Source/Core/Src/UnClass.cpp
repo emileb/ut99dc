@@ -283,6 +283,7 @@ UStruct::UStruct( ENativeConstructor, INT InSize, const TCHAR* InName, const TCH
 ,	ScriptText		( NULL )
 ,	Children		( NULL )
 ,	PropertiesSize	( InSize )
+,	IntrinsicSize	( InSize )
 ,	Script			()
 ,	TextPos			( 0 )
 ,	Line			( 0 )
@@ -293,6 +294,11 @@ UStruct::UStruct( ENativeConstructor, INT InSize, const TCHAR* InName, const TCH
 ,	ConstructorLink	( NULL )
 ,	FriendlyName	( /*Uninitialized*/ )
 {}
+// Note: IntrinsicSize is intentionally not initialized here.  Like
+// UClass::ClassConstructor, it is preserved across the in-place reconstruction
+// that happens when a package export replaces a registered intrinsic class
+// (see UObject::StaticAllocateObject); fresh objects get it zeroed by
+// InitProperties before this constructor runs.
 UStruct::UStruct( UStruct* InSuperStruct )
 :	UField( InSuperStruct )
 ,	PropertiesSize( InSuperStruct ? InSuperStruct->GetPropertiesSize() : 0 )
@@ -325,6 +331,49 @@ void UStruct::Register()
 }
 
 //
+// Script mirrors of native classes declare hidden native members as 32-bit
+// ints (e.g. Object.uc's "int ObjectInternal[6]", Player.uc's "vfOut" vtable
+// placeholder, or Canvas.uc's "FramePtr").  On 64-bit machines those members
+// really occupy pointer-sized storage in the C++ class, so the layout of
+// everything that follows would diverge from the C++ layout unless the
+// placeholders are widened.  Returns the true total byte size of the
+// placeholder, or 0 if the property is not a placeholder.  Sizes collapse to
+// the original 32-bit values when sizeof(void*)==4 (Dreamcast et al).
+//
+static INT GetPlaceholderSize( UStruct* Owner, UProperty* Property )
+{
+	// Covers UObject's hidden C++ members: vtable, HashNext, StateFrame,
+	// _Linker (4 pointers) plus Index and _LinkerIndex (2 ints).
+	static const INT ObjectInternalSize = 4*sizeof(void*) + 2*sizeof(INT);
+	static const struct { const TCHAR* Struct; const TCHAR* Prop; INT Size; } Placeholders[] =
+	{
+		{ TEXT("Object"),          TEXT("ObjectInternal"),     ObjectInternalSize },
+		{ TEXT("Subsystem"),       TEXT("ExecVtbl"),           sizeof(void*) }, // FExec vtable.
+		{ TEXT("Console"),         TEXT("vtblOut"),            sizeof(void*) }, // FOutputDevice vtable.
+		{ TEXT("Player"),          TEXT("vfOut"),              sizeof(void*) }, // FOutputDevice vtable.
+		{ TEXT("Player"),          TEXT("vfExec"),             sizeof(void*) }, // FExec vtable.
+		{ TEXT("Canvas"),          TEXT("FramePtr"),           sizeof(void*) }, // FSceneNode*.
+		{ TEXT("Canvas"),          TEXT("RenderPtr"),          sizeof(void*) }, // URenderBase*.
+		{ TEXT("ScriptedTexture"), TEXT("Junk1"),              sizeof(void*) }, // UTexture* OldSourceTex.
+		{ TEXT("ScriptedTexture"), TEXT("Junk2"),              sizeof(void*) }, // BYTE* LocalSourceBitmap.
+		{ TEXT("ScriptedTexture"), TEXT("Junk3"),              sizeof(void*) }, // TMap<...>* PaletteMap.
+		{ TEXT("InternetLink"),    TEXT("PrivateResolveInfo"), sizeof(void*) }, // FResolveInfo*.
+		{ TEXT("StatLog"),         TEXT("Context"),            sizeof(void*) }, // FMD5Context*.
+		{ TEXT("StatLogFile"),     TEXT("LogAr"),              sizeof(void*) }, // FArchive*.
+		{ TEXT("WaterTexture"),    TEXT("SourceFields"),       sizeof(void*) }, // BYTE*.
+		{ TEXT("WetTexture"),      TEXT("LocalSourceBitmap"),  sizeof(void*) }, // BYTE*.
+		{ TEXT("IceTexture"),      TEXT("LocalSource"),        sizeof(void*) }, // BYTE* LocalSourceBitmap.
+	};
+	for( INT i=0; i<ARRAY_COUNT(Placeholders); i++ )
+	{
+		if( appStricmp( Owner->GetName(), Placeholders[i].Struct )==0
+		&&	appStricmp( Property->GetName(), Placeholders[i].Prop )==0 )
+			return Placeholders[i].Size;
+	}
+	return 0;
+}
+
+//
 // Link offsets.
 //
 void UStruct::Link( FArchive& Ar, UBOOL Props )
@@ -350,12 +399,37 @@ void UStruct::Link( FArchive& Ar, UBOOL Props )
 			UProperty* Property = Cast<UProperty>( Field );
 			if( Property )
 			{
-				Property->Link( Ar, Prev );
-				PropertiesSize = Property->Offset + Property->GetSize();
+				INT PlaceholderSize = GetPlaceholderSize( this, Property );
+				if( PlaceholderSize )
+				{
+					Property->Offset = Align( PropertiesSize, 4 );
+					PropertiesSize   = Property->Offset + PlaceholderSize;
+				}
+				else
+				{
+					Property->Link( Ar, Prev );
+					PropertiesSize = Property->Offset + Property->GetSize();
+				}
 				Prev = Property;
 			}
 		}
 		PropertiesSize = Align(PropertiesSize,4);
+
+		// Intrinsic classes mirror a C++ class whose real size is authoritative.
+		// If the script-computed layout disagrees, report it: every mismatch
+		// means script and C++ will read that class's members at different
+		// offsets.  A correct build logs zero mismatches.
+		if( IntrinsicSize>0 && PropertiesSize!=IntrinsicSize )
+		{
+			debugf( NAME_Warning, TEXT("Native class size mismatch: %s script=%i C++=%i"), GetName(), PropertiesSize, IntrinsicSize );
+			for( UField* Field=Children; Field && Field->GetOuter()==this; Field=Field->Next )
+			{
+				UProperty* Property = Cast<UProperty>( Field );
+				if( Property )
+					debugf( NAME_Warning, TEXT("  %s %s: offset=%i size=%i"), Property->GetClass()->GetName(), Property->GetName(), Property->Offset, Property->GetSize() );
+			}
+			PropertiesSize = Max( PropertiesSize, IntrinsicSize );
+		}
 	}
 	else
 	{
@@ -760,8 +834,8 @@ void UClass::Register()
 	Super::Register();
 
 	// Get stashed registration info.
-	const TCHAR* InClassConfigName = *(TCHAR**)&ClassConfigName;
-	ClassConfigName = InClassConfigName;
+	ClassConfigName = NativeConfigNameStash;
+	NativeConfigNameStash = NULL;
 
 	// Init default object.
 	Defaults.Empty( GetPropertiesSize() );
@@ -1018,9 +1092,8 @@ UClass::UClass
 ,	NetFields				()
 ,	ClassConstructor		( InClassConstructor )
 ,	ClassStaticConstructor	( InClassStaticConstructor )
-{
-	*(const TCHAR**)&ClassConfigName = InConfigName;
-}
+,	NativeConfigNameStash	( InConfigName )
+{}
 
 IMPLEMENT_CLASS(UClass);
 
@@ -1096,9 +1169,34 @@ EExprToken UStruct::SerializeExpr( INT& iCode, FArchive& Ar )
 	guard(SerializeExpr);
 	#ifdef PLATFORM_DREAMCAST
 	#define XFER(T) {XferAligned(Ar, (T*)&Script(iCode)); iCode += sizeof(T);}
+	#define XFER_SCRIPT_INT_READ(Var)  __builtin_memcpy( &Var, &Script(iCode), sizeof(INT) );
+	#define XFER_SCRIPT_INT_WRITE(Var) __builtin_memcpy( &Script(iCode), &Var, sizeof(INT) );
 	#else
 	#define XFER(T) {Ar << *(T*)&Script(iCode); iCode += sizeof(T); }
+	#define XFER_SCRIPT_INT_READ(Var)  Var = *(INT*)&Script(iCode);
+	#define XFER_SCRIPT_INT_WRITE(Var) *(INT*)&Script(iCode) = Var;
 	#endif
+	// XFER_OBJ stores object/property/class/struct references as a fixed-size
+	// INT (GObjObjects index) in the in-memory bytecode, keeping the layout at
+	// 4 bytes per reference regardless of native pointer size.  Baked jump/skip
+	// offsets in 32-bit-compiled packages therefore stay valid on 64-bit.  Exec
+	// functions translate the index back to a pointer at runtime via
+	// UObject::GetIndexedObject() (see FFrame::ReadObject).  Non-loading
+	// archives (saving, garbage collection tagging) see the real pointer.
+	#define XFER_OBJ(T) \
+	{ \
+		UObject* Obj = NULL; \
+		INT ObjIndex = INDEX_NONE; \
+		if( !Ar.IsLoading() ) \
+		{ \
+			XFER_SCRIPT_INT_READ(ObjIndex); \
+			Obj = UObject::GetIndexedObject( ObjIndex ); \
+		} \
+		Ar << Obj; \
+		ObjIndex = Obj ? (INT)Obj->GetIndex() : INDEX_NONE; \
+		XFER_SCRIPT_INT_WRITE(ObjIndex); \
+		iCode += sizeof(INT); \
+	}
 
 	// Get expr token.
 	XFER(BYTE);
@@ -1137,7 +1235,7 @@ EExprToken UStruct::SerializeExpr( INT& iCode, FArchive& Ar )
 		case EX_InstanceVariable:
 		case EX_DefaultVariable:
 		{
-			XFER(UProperty*);
+			XFER_OBJ(UProperty);
 			break;
 		}
 		case EX_BoolVariable:
@@ -1167,7 +1265,7 @@ EExprToken UStruct::SerializeExpr( INT& iCode, FArchive& Ar )
 		}
 		case EX_FinalFunction:
 		{
-			XFER(UStruct*); // Stack node.
+			XFER_OBJ(UStruct); // Stack node.
 			while( SerializeExpr( iCode, Ar ) != EX_EndFunctionParms ); // Parms.
 			break;
 		}
@@ -1180,7 +1278,7 @@ EExprToken UStruct::SerializeExpr( INT& iCode, FArchive& Ar )
 		}
 		case EX_NativeParm:
 		{
-			XFER(UProperty*);
+			XFER_OBJ(UProperty);
 			break;
 		}
 		case EX_ClassContext:
@@ -1229,7 +1327,7 @@ EExprToken UStruct::SerializeExpr( INT& iCode, FArchive& Ar )
 		}
 		case EX_ObjectConst:
 		{
-			XFER(UObject*);
+			XFER_OBJ(UObject);
 			break;
 		}
 		case EX_NameConst:
@@ -1255,13 +1353,13 @@ EExprToken UStruct::SerializeExpr( INT& iCode, FArchive& Ar )
 		}
 		case EX_MetaCast:
 		{
-			XFER(UClass*);
+			XFER_OBJ(UClass);
 			SerializeExpr( iCode, Ar );
 			break;
 		}
 		case EX_DynamicCast:
 		{
-			XFER(UClass*);
+			XFER_OBJ(UClass);
 			SerializeExpr( iCode, Ar );
 			break;
 		}
@@ -1332,14 +1430,14 @@ EExprToken UStruct::SerializeExpr( INT& iCode, FArchive& Ar )
 		case EX_StructCmpEq:
 		case EX_StructCmpNe:
 		{
-			XFER(UStruct*); // Struct.
+			XFER_OBJ(UStruct); // Struct.
 			SerializeExpr( iCode, Ar ); // Left expr.
 			SerializeExpr( iCode, Ar ); // Right expr.
 			break;
 		}
 		case EX_StructMember:
 		{
-			XFER(UProperty*); // Property.
+			XFER_OBJ(UProperty); // Property.
 			SerializeExpr( iCode, Ar ); // Inner expr.
 			break;
 		}
