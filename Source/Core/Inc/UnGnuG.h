@@ -25,7 +25,12 @@
 #include <string.h>
 #include <strings.h>
 #include <ctype.h>
+#include <stdlib.h>
+#if defined(__APPLE__)
+#include <malloc/malloc.h>
+#else
 #include <malloc.h>
+#endif
 #include <dirent.h>
 #ifdef PLATFORM_WIN32
 #include <minwindef.h>
@@ -152,7 +157,11 @@ static_assert((char)-1 < 0, "char must be signed.");
 // Strings.
 #define LINE_TERMINATOR TEXT("\n")
 #define PATH_SEPARATOR TEXT("/")
+#if defined(__APPLE__)
+#define DLLEXT TEXT(".dylib")
+#else
 #define DLLEXT TEXT(".so")
+#endif
 
 // No VC++ asm.
 #undef ASM

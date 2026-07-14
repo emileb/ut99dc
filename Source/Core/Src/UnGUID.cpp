@@ -41,14 +41,14 @@ typedef unsigned char   byte;
 #define CLOCK_SEQ_LAST	0x3FFF
 #define RAND_MASK		CLOCK_SEQ_LAST
 
-typedef struct _uuid_t {
+typedef struct _unreal_uuid_t {
   unsigned32          time_low;
   unsigned16          time_mid;
   unsigned16          time_hi_and_version;
   unsigned8           clock_seq_hi_and_reserved;
   unsigned8           clock_seq_low;
   byte                node[6];
-} uuid_t;
+} unreal_uuid_t;
 
 typedef struct _unsigned64_t {
   unsigned32          lo;
@@ -56,7 +56,7 @@ typedef struct _unsigned64_t {
 } unsigned64_t;
 
 // Forward declarations.
-void uuid_create(uuid_t *uuid);
+void uuid_create(unreal_uuid_t *uuid);
 static unsigned16 true_random(void);
 void uuid_init(void);
 
@@ -78,7 +78,7 @@ void appGetGUID( void* GUID )
 		uuid_init();
 		Init = 1;
 	}
-	uuid_create( (uuid_t*)GUID );
+	uuid_create( (unreal_uuid_t*)GUID );
 }
 	
 /*----------------------------------------------------------------------------
@@ -279,7 +279,7 @@ static void new_clock_seq(void)
 #endif
 }
 
-void uuid_create(uuid_t *uuid)
+void uuid_create(unreal_uuid_t *uuid)
 {
   static unsigned64_t     time_now;
   static unsigned16       time_adjust;

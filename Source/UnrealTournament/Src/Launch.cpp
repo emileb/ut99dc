@@ -41,7 +41,11 @@ FFileManagerLinux FileManager;
 
 #ifdef PLATFORM_DREAMCAST
 #include <kos.h>
+#if defined(__APPLE__)
+#include <malloc/malloc.h>
+#else
 #include <malloc.h>
+#endif
 #include <assert.h>
 #include <string.h>
 #include <stdarg.h>
