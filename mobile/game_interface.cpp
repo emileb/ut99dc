@@ -30,6 +30,21 @@
 // remap applies here because SDL2/SDL.h is included above.
 extern int main(int argc, char **argv);
 
+// Defined in NSDLDrv/Src/NSDLViewport.cpp (Android-only).
+extern "C" int UT99_IsMenuActive();
+
+// SDL's internal keyboard injection (same approach the :Unreal module / TFE /
+// OpenJK use): queues a real key event under SDL's lock, safe to call from the
+// touch thread. It's consumed on the engine thread in NSDLViewport::TickInput()
+// (SDL_KEYDOWN/UP -> CauseInputEvent), so the menu/console and any rebound keys
+// see it exactly like a hardware key.
+extern "C" int SDL_SendKeyboardKey(Uint8 state, SDL_Scancode scancode);
+
+static void sendKey(int state, SDL_Scancode scancode)
+{
+    SDL_SendKeyboardKey(state ? SDL_PRESSED : SDL_RELEASED, scancode);
+}
+
 // Pump the read end of the stdout/stderr pipe into logcat, line by line.
 static void *ut99_stdio_logger(void *arg)
 {
@@ -82,11 +97,31 @@ void PortableInit(int argc, const char **argv)
     main(argc, (char **)argv);
 }
 
-void PortableBackButton(void) {}
+void PortableBackButton(void)
+{
+    // Escape toggles the UWindow menu open/closed.
+    sendKey(1, SDL_SCANCODE_ESCAPE);
+    sendKey(0, SDL_SCANCODE_ESCAPE);
+}
 
-int PortableKeyEvent(int state, int code, int unitcode) { return 0; }
+int PortableKeyEvent(int state, int code, int unitcode)
+{
+    // code is already an SDL_Scancode (on-screen keyboard, hardware keys, and
+    // the menu/back button all route here).
+    sendKey(state, (SDL_Scancode)code);
+    return 0;
+}
 
-void PortableAction(int state, int action) {}
+void PortableAction(int state, int action)
+{
+    // Menu mouse buttons (Phase 2: menu input). Gameplay actions are still TODO.
+    switch (action)
+    {
+        case PORT_ACT_MOUSE_LEFT:  MouseButton(state, BUTTON_PRIMARY);   break;
+        case PORT_ACT_MOUSE_RIGHT: MouseButton(state, BUTTON_SECONDARY); break;
+        default: break;
+    }
+}
 
 void PortableMove(float fwd, float strafe) {}
 
@@ -102,7 +137,7 @@ void PortableMouse(float dx, float dy) {}
 
 void PortableMouseAbs(float x, float y) {}
 
-void PortableMouseButton(int state, int button, float dx, float dy) {}
+void PortableMouseButton(int state, int button, float dx, float dy) { MouseButton(state, button); }
 
 void PortableCommand(const char *cmd) {}
 
@@ -112,7 +147,7 @@ int PortableShowKeyboard(void) { return 0; }
 
 bool PortableSetAlwaysRun(bool run) { return run; }
 
-touchscreemode_t PortableGetScreenMode() { return TS_GAME; }
+touchscreemode_t PortableGetScreenMode() { return UT99_IsMenuActive() ? TS_MENU : TS_GAME; }
 
 void PortableSetMouseTapMode(int enable) {}
 

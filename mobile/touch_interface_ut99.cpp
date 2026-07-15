@@ -8,6 +8,9 @@
 #include "touch_interface.h"
 #include "SDL_keycode.h"
 
+extern int mobile_screen_width;
+extern int mobile_screen_height;
+
 
 void TouchInterface::openGLStart()
 {
@@ -21,6 +24,21 @@ void TouchInterface::openGLEnd()
 
 void TouchInterface::mouseMove(int action, float x, float y, float mouse_x, float mouse_y)
 {
+    // Relative-drag menu cursor. In the menu the engine drops mouse capture
+    // (SDL relative mode off - see UnGame.cpp), so an injected relative motion
+    // updates SDL's absolute position and reaches the engine's absolute
+    // MousePosition() path, moving the UWindow cursor; the tap's button events
+    // reach the UWindow click handler.
+    if(action == TOUCHMOUSE_MOVE)
+    {
+        MouseMove(mouse_x * mobile_screen_width, mouse_y * mobile_screen_height);
+    }
+    else if(action == TOUCHMOUSE_TAP)
+    {
+        MouseButton(1, BUTTON_PRIMARY);
+        waitFrames(3);
+        MouseButton(0, BUTTON_PRIMARY);
+    }
 }
 
 void TouchInterface::createControls(std::string filesPath)
@@ -57,6 +75,17 @@ void TouchInterface::createControls(std::string filesPath)
     touchcontrols::Mouse *brightnessSlide = new touchcontrols::Mouse("slide_mouse", touchcontrols::RectF(24, 3, 26, 11), "brightness_slider");
     brightnessSlide->signal_action.connect(sigc::mem_fun(this, &TouchInterface::brightnessSlideMouse));
     tcMenuMain->addControl(brightnessSlide);
+
+    // Left mouse button, for clicking the UWindow menu item under the cursor.
+    tcMenuMain->addControl(new touchcontrols::Button("left_mouse", touchcontrols::RectF(23, 4, 26, 7), "left_mouse", PORT_ACT_MOUSE_LEFT));
+
+    // Full-screen invisible trackpad: relative-drag moves the UWindow menu
+    // cursor, tap clicks. Added last so the buttons above take touch priority.
+    touchcontrols::Mouse *menuMouse = new touchcontrols::Mouse("mouse", touchcontrols::RectF(0, 0, 26, 16), "");
+    menuMouse->setHideGraphics(true);
+    menuMouse->setEditable(false);
+    tcMenuMain->addControl(menuMouse);
+    menuMouse->signal_action.connect(sigc::mem_fun(this, &TouchInterface::mouseMove));
 
     tcMenuMain->signal_button.connect(sigc::mem_fun(this, &TouchInterface::menuButton));
     tcMenuMain->setAlpha(0.8);

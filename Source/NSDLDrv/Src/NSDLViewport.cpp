@@ -6,6 +6,34 @@
 
 IMPLEMENT_CLASS( UNSDLViewport );
 
+#ifdef __ANDROID__
+// The touch UI (mobile/game_interface.cpp) needs to know whether the in-game
+// menu is up so it can switch to the on-screen mouse control set. There is only
+// ever one local viewport in this port, so a single static pointer is enough.
+// Set in the constructor and cleared in Destroy(), both on the engine's thread.
+static UNSDLViewport* GAndroidViewport = NULL;
+
+// Is a menu / GUI currently showing? Matches exactly what the engine's own
+// mouse-capture logic checks (UGameEngine::Tick in UnGame.cpp): the UWindow GUI
+// menu sets bShowWindowsMouse (a UPlayer flag - the Windows-style cursor), while
+// bShowMenu is the classic Unreal-1 menu flag only the old Menu.uc sets. When
+// either is set the engine drops mouse capture, so injected motion flows through
+// the absolute Engine->MousePosition() path and moves the on-screen cursor.
+extern "C" int UT99_IsMenuActive()
+{
+	if( !GAndroidViewport )
+		return 0;
+	if( GAndroidViewport->bShowWindowsMouse )
+		return 1;
+	return GAndroidViewport->Actor && GAndroidViewport->Actor->bShowMenu;
+}
+
+extern "C" UViewport* UT99_GetViewport()
+{
+	return GAndroidViewport;
+}
+#endif
+
 /*-----------------------------------------------------------------------------
 	UNSDLViewport implementation.
 -----------------------------------------------------------------------------*/
@@ -197,6 +225,10 @@ UNSDLViewport::UNSDLViewport( ULevel* InLevel, UNSDLClient* InClient )
 	QuitRequested = false;
 	HoldCount = 0;
 
+#ifdef __ANDROID__
+	GAndroidViewport = this;
+#endif
+
 	unguard;
 }
 
@@ -204,6 +236,10 @@ UNSDLViewport::UNSDLViewport( ULevel* InLevel, UNSDLClient* InClient )
 void UNSDLViewport::Destroy()
 {
 	guard(UNSDLViewport::Destroy);
+#ifdef __ANDROID__
+	if( GAndroidViewport == this )
+		GAndroidViewport = NULL;
+#endif
 	// Note: FullscreenViewport tracking removed - Unreal 1 specific
 	UViewport::Destroy();
 	unguard;
@@ -271,16 +307,25 @@ void UNSDLViewport::OpenWindow( DWORD InParentWindow, UBOOL Temporary, INT NewX,
 	SDL_GLprofile GLProfile = SDL_GL_CONTEXT_PROFILE_COMPATIBILITY;
 
 	// Clamp invalid sizes – SDL textures can't be 0x0
-	// If no size specified, try to read from config
+	// If no size specified, try the command line, then config.
 	if( NewX <= 0 || NewY <= 0 )
 	{
 		if( !Temporary && !GIsEditor )
 		{
-			// Try to get windowed viewport size from config
+			// -ResX=/-ResY= override the ini (UT99 has no native resolution
+			// command-line flag - WindowedViewportX/Y are ini-only). Added for
+			// the app's resolution selector; generically useful, not gated.
+			INT CmdX = 0, CmdY = 0;
+			if( Parse( appCmdLine(), TEXT("ResX="), CmdX ) && CmdX > 0 )
+				NewX = CmdX;
+			if( Parse( appCmdLine(), TEXT("ResY="), CmdY ) && CmdY > 0 )
+				NewY = CmdY;
+
+			// Fall back to windowed viewport size from config.
 			INT ConfigX = 0, ConfigY = 0;
-			if( GConfig->GetInt( TEXT("NSDLDrv.NSDLClient"), TEXT("WindowedViewportX"), ConfigX ) && ConfigX > 0 )
+			if( NewX <= 0 && GConfig->GetInt( TEXT("NSDLDrv.NSDLClient"), TEXT("WindowedViewportX"), ConfigX ) && ConfigX > 0 )
 				NewX = ConfigX;
-			if( GConfig->GetInt( TEXT("NSDLDrv.NSDLClient"), TEXT("WindowedViewportY"), ConfigY ) && ConfigY > 0 )
+			if( NewY <= 0 && GConfig->GetInt( TEXT("NSDLDrv.NSDLClient"), TEXT("WindowedViewportY"), ConfigY ) && ConfigY > 0 )
 				NewY = ConfigY;
 		}
 		// Final fallback
