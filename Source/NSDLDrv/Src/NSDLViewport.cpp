@@ -312,7 +312,16 @@ void UNSDLViewport::OpenWindow( DWORD InParentWindow, UBOOL Temporary, INT NewX,
 			DoOpenGL = 1;
 		}
 		if( DoOpenGL && Temp.InStr(TEXT("GLES")) != INDEX_NONE )
+#ifdef __ANDROID__
+			// Android only has GLES: request a real ES2 context. Desktop GL
+			// tolerated the wrong (compatibility) profile mask, but on Android
+			// SDL_GL_CreateContext() fails with it. Desktop keeps requesting a
+			// compatibility context - NOpenGLESDrv::CreateShader detects the
+			// non-ES context at runtime and compiles #version 120 instead.
+			GLProfile = SDL_GL_CONTEXT_PROFILE_ES;
+#else
 			GLProfile = SDL_GL_CONTEXT_PROFILE_COMPATIBILITY;
+#endif
 	}
 
 	// User window of launcher if no parent window was specified.
@@ -356,6 +365,11 @@ void UNSDLViewport::OpenWindow( DWORD InParentWindow, UBOOL Temporary, INT NewX,
 				// Request GLES2.
 				SDL_GL_SetAttribute( SDL_GL_CONTEXT_MAJOR_VERSION, 2 );
 				SDL_GL_SetAttribute( SDL_GL_CONTEXT_MINOR_VERSION, 0 );
+
+                SDL_GL_SetAttribute(SDL_GL_GREEN_SIZE, 8);
+                SDL_GL_SetAttribute(SDL_GL_BLUE_SIZE, 8);
+                SDL_GL_SetAttribute(SDL_GL_ALPHA_SIZE,8);
+                SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
 			}
 			SDL_GL_SetAttribute( SDL_GL_CONTEXT_PROFILE_MASK, GLProfile );
 		}

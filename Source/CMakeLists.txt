@@ -1,5 +1,7 @@
 cmake_minimum_required(VERSION 3.15)
-list(APPEND CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake)
+# CMAKE_CURRENT_SOURCE_DIR (not CMAKE_SOURCE_DIR): under the Android wrapper this
+# CMakeLists is add_subdirectory()'d, so CMAKE_SOURCE_DIR points at the wrapper.
+list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
 
 project(UT99 CXX)
 
@@ -41,7 +43,7 @@ if(PLATFORM_DREAMCAST)
   set(BUILD_STATIC ON)
   set(USE_SDL OFF)
   set(LOW_MEMORY ON)
-  set(BUILD_EDITOR OFF) 
+  set(BUILD_EDITOR OFF)
   set(BUILD_NOPENALDRV OFF)
   set(BUILD_NULLSOUNDDRV OFF)
   set(BUILD_AICADRV ON)
@@ -49,6 +51,25 @@ if(PLATFORM_DREAMCAST)
   set(BUILD_GLDCDRV OFF)
   set(BUILD_PVRDRV ON)
   set(BUILD_DCUTIL OFF)
+endif()
+
+if(ANDROID)
+  # Single libut99.so with every package linked in statically (mirrors the
+  # engine's Dreamcast/Vita static path). Plain set() (not cache) so these
+  # shadow any previously cached option() values.
+  set(BUILD_STATIC ON)
+  set(USE_SDL ON)
+  set(BUILD_EDITOR OFF)
+  set(BUILD_DCUTIL OFF)
+  set(BUILD_AICADRV OFF)
+  set(BUILD_PVRDRV OFF)
+  # No audio backend on Android yet (Phase 1): the game runs with UseSound=False,
+  # exactly like the desktop build. Source/SoundDrv doesn't exist, so the null
+  # driver can't be built either.
+  set(BUILD_NULLSOUNDDRV OFF)
+  # ARM defaults char to unsigned and enums to variable-width; the engine
+  # requires signed char (static_assert in UnGnuG.h) and int-width enums.
+  add_compile_options(-fsigned-char -fno-short-enums)
 endif()
 
 

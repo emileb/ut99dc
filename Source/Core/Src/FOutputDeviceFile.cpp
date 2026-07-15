@@ -9,6 +9,15 @@
 #include "CorePrivate.h"
 #include "FOutputDeviceFile.h"
 
+#ifdef __ANDROID__
+#include <android/log.h>
+#define LOGI(...) ((void)__android_log_print(ANDROID_LOG_INFO,"UT99", __VA_ARGS__))
+// From Clibs_OpenTouch (linked into the final .so); prototype declared here so
+// this Core module needs no extra include paths. Mirrors every log line to
+// logcat and to the app's shareable log file.
+extern "C" void LogWritter_Write(const char *msg);
+#endif
+
 /*-----------------------------------------------------------------------------
 	FOutputDeviceFile implementation.
 -----------------------------------------------------------------------------*/
@@ -20,6 +29,13 @@ void FOutputDeviceFile::Serialize( const TCHAR* Data, enum EName Event )
 	{
 		if( !FName::SafeSuppressed(Event) )
 		{
+#ifdef __ANDROID__
+			if( Event!=NAME_Title )
+			{
+				LOGI( "%s: %s", TCHAR_TO_ANSI(FName::SafeString(Event)), TCHAR_TO_ANSI(Data) );
+				LogWritter_Write( TCHAR_TO_ANSI(Data) );
+			}
+#endif
 			if( !LogAr && !Dead )
 			{
 				// Make log filename.

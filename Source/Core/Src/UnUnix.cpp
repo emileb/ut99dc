@@ -622,9 +622,14 @@ CORE_API const char* appBaseDir()
 	{
 		// Get directory this executable was launched from.
 #if defined(PLATFORM_SDL)
+#ifdef __ANDROID__
+        char* BasePath = "./";
+        appStrncpy( BaseDir, BasePath, sizeof(BaseDir) );
+#else
 		char* BasePath = SDL_GetBasePath();
 		appStrncpy( BaseDir, BasePath, sizeof(BaseDir) );
 		SDL_free( BasePath );
+#endif
 #elif defined(PLATFORM_DREAMCAST)
 		// try PC/SD/HDD first, then CD
 		static const char* Paths[] =
