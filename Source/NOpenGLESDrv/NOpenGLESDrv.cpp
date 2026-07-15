@@ -776,7 +776,19 @@ void UNOpenGLESRenderDevice::SetSceneNode( FSceneNode* Frame )
 			Viewport->SizeX != CurrentSceneNode.SizeX || Viewport->SizeY != CurrentSceneNode.SizeY )
 	{
 		FlushTriangles();
+#ifdef __ANDROID__
+		// The root/master frame's X/Y is a small fixed logical UI size on Android
+		// (see URender::CreateMasterFrame), not the real pixel size - the GL
+		// viewport must still cover the whole real framebuffer, so use
+		// Viewport->SizeX/SizeY directly for it. Child frames (mirrors/portals)
+		// are unaffected: their X/Y is still a genuine pixel sub-region.
+		if( Frame->Parent == NULL )
+			glViewport( 0, 0, Viewport->SizeX, Viewport->SizeY );
+		else
+			glViewport( Frame->XB, Viewport->SizeY - Frame->Y - Frame->YB, Frame->X, Frame->Y );
+#else
 		glViewport( Frame->XB, Viewport->SizeY - Frame->Y - Frame->YB, Frame->X, Frame->Y );
+#endif
 		CurrentSceneNode.X = Frame->X;
 		CurrentSceneNode.Y = Frame->Y;
 		CurrentSceneNode.XB = Frame->XB;

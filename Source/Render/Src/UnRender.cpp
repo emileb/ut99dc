@@ -1314,8 +1314,23 @@ FSceneNode* URender::CreateMasterFrame( UViewport* Viewport, FVector Location, F
 	// Set base info.
 	FSceneNode* Frame	= new(GSceneMem)FSceneNode;
 	Frame->Viewport		= Viewport;
+#ifdef __ANDROID__
+	// UI scale: report a fixed logical canvas size (preserving the real aspect
+	// ratio) instead of the true device pixel size, so UnrealScript's
+	// Canvas.ClipX/ClipY-relative HUD/menu/text layout works in a small,
+	// constant-size space and stays a constant apparent size no matter what
+	// render resolution the player picks. The 2D drawing lands in normalised
+	// device coords, so it stretches to fill the *real* GL viewport (which is
+	// set from Viewport->SizeX/SizeY, not Frame->X/Y - see
+	// UNOpenGLESRenderDevice::SetSceneNode). 3D perspective is unaffected: only
+	// the (preserved) aspect ratio and FOV matter there, not the absolute scale.
+	const INT UILogicalHeight = 480;
+	Frame->X			= (Viewport->SizeX * UILogicalHeight) / Viewport->SizeY;
+	Frame->Y			= UILogicalHeight;
+#else
 	Frame->X			= Viewport->SizeX;
 	Frame->Y			= Viewport->SizeY;
+#endif
 	Frame->XB			= 0;
 	Frame->YB			= 0;
 	Frame->Level		= Viewport->Actor->GetLevel();
