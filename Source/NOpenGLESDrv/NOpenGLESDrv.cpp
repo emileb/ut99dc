@@ -777,13 +777,24 @@ void UNOpenGLESRenderDevice::SetSceneNode( FSceneNode* Frame )
 	{
 		FlushTriangles();
 #ifdef __ANDROID__
-		// The root/master frame's X/Y is a small fixed logical UI size on Android
-		// (see URender::CreateMasterFrame), not the real pixel size - the GL
-		// viewport must still cover the whole real framebuffer, so use
-		// Viewport->SizeX/SizeY directly for it. Child frames (mirrors/portals)
-		// are unaffected: their X/Y is still a genuine pixel sub-region.
 		if( Frame->Parent == NULL )
-			glViewport( 0, 0, Viewport->SizeX, Viewport->SizeY );
+		{
+			// Root/master frames work in the small logical UI canvas set by
+			// URender::CreateMasterFrame (UILogicalHeight tall), not real pixels.
+			// This covers the full-screen game/HUD frame *and* canvas 3D renders
+			// that reuse/clone the master frame into a sub-rectangle given in
+			// Canvas coords - execDrawClippedActor (the UWindow player-setup
+			// preview) and execDrawPortal. Scale that logical rect back up to real
+			// pixels so the GL viewport lands in the right place and size. Uniform
+			// scale = real height / logical height (aspect preserved upstream).
+			const INT UILogicalHeight = 480; // must match URender::CreateMasterFrame
+			const FLOAT S = (FLOAT)Viewport->SizeY / (FLOAT)UILogicalHeight;
+			glViewport(
+				appRound( Frame->XB * S ),
+				Viewport->SizeY - appRound( (Frame->Y + Frame->YB) * S ),
+				appRound( Frame->X * S ),
+				appRound( Frame->Y * S ) );
+		}
 		else
 			glViewport( Frame->XB, Viewport->SizeY - Frame->Y - Frame->YB, Frame->X, Frame->Y );
 #else
