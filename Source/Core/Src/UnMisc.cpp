@@ -1487,6 +1487,22 @@ static void AndroidAbsolutePath( TCHAR* Buf, INT BufSize )
 		appStrncpy( Buf, Rebuilt, BufSize );
 	}
 }
+
+// Rewrites a bare, System-relative config/localization filename (e.g. "Core.int",
+// "Botpack.int") to an absolute "<GamePath>/System/<name>". The engine's config
+// cache (FConfigCacheIni::Find) opens these by relative name, which SAFFAL can't
+// match on SAF storage (it matches by absolute prefix - same reason packages need
+// -GamePath), so localization silently fails there while packages still load.
+// No-op (returns 0) when no -GamePath is set (primary storage keeps working via
+// relative+chdir) or the name is already absolute. Declared in FConfigCacheIni.h.
+CORE_API UBOOL appAndroidConfigPath( const TCHAR* In, TCHAR* Out )
+{
+	const TCHAR* GamePath = AndroidGamePath();
+	if( !GamePath[0] || In[0]=='/' )
+		return 0;
+	appSprintf( Out, TEXT("%s/System/%s"), GamePath, In );
+	return 1;
+}
 #endif
 
 UBOOL appFindPackageFile( const TCHAR* In, const FGuid* Guid, TCHAR* Out )

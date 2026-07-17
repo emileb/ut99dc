@@ -10,6 +10,12 @@
 	Config cache.
 -----------------------------------------------------------------------------*/
 
+#ifdef __ANDROID__
+// Defined in UnMisc.cpp: rewrites a bare System-relative config/.int filename to
+// an absolute <GamePath>/System/ path so it can be opened on SAF storage.
+CORE_API UBOOL appAndroidConfigPath( const TCHAR* In, TCHAR* Out );
+#endif
+
 // One section in a config file.
 class FConfigSection : public TMultiMap<FString,FString>
 {};
@@ -120,6 +126,16 @@ public:
 			appStrcpy( Filename, *UserIni );
 		else if( appStricmp(Filename,TEXT("System.ini"))==0 )
 			appStrcpy(Filename,*SystemIni);
+
+#ifdef __ANDROID__
+		// SAF/secondary storage: .int (and any bare System-relative) config files
+		// can't be opened by relative name - rewrite to an absolute GamePath path.
+		// No-op on primary storage (no -GamePath) and for already-absolute names
+		// (the writable *.ini, redirected to user_files via -INI=/-USERINI=).
+		TCHAR AndroidAbs[256];
+		if( appAndroidConfigPath( Filename, AndroidAbs ) )
+			appStrcpy( Filename, AndroidAbs );
+#endif
 
 		// Get file.
 		FConfigFile* Result = TMap<FString,FConfigFile>::Find( Filename );
