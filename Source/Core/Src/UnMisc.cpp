@@ -1446,6 +1446,49 @@ CORE_API UBOOL appSaveStringToFile( const FString& String, const TCHAR* Filename
 //
 // Find a file.
 //
+#ifdef __ANDROID__
+// SAFFAL (the scoped-storage libc interceptor) decides whether a path is in
+// SAF-backed storage purely by string prefix - it does NOT resolve "../" or
+// consult the working directory (see getCanonicalPath()/isInSAF() in
+// SAFFAL/saffal/src/main/jni/Utils.cpp), so a CWD-relative path like
+// "../Maps/Foo.unr" (from GSys->Paths, e.g. "..\Maps\*.unr") can never match
+// its registered SAF root and silently falls through to a real (failing) open.
+// On Android we rewrite that same "one level up, into a sibling folder" shape
+// into an absolute path rooted at -GamePath= - the UT99 folder itself (System's
+// parent, i.e. exactly what "../" resolves to), passed by UT99Launcher.kt only
+// when the game data lives on secondary/SAF storage. Primary storage keeps
+// working via the original relative+chdir path (no -GamePath=, so this no-ops).
+static const TCHAR* AndroidGamePath()
+{
+	static TCHAR GamePath[256] = TEXT("");
+	static UBOOL Checked = 0;
+	if( !Checked )
+	{
+		Parse( appCmdLine(), TEXT("GamePath="), GamePath, ARRAY_COUNT(GamePath) );
+		debugf( NAME_Init, TEXT("Android: GamePath override = '%s'"), GamePath );
+		Checked = 1;
+	}
+	return GamePath;
+}
+
+// Rewrites Buf in place from "../Foo/..." to "<GamePath>/Foo/...", if Buf starts
+// with ".." and a GamePath override is set. No-op otherwise (covers primary-
+// storage installs, which don't pass -GamePath=). Called before the "*" split so
+// no dangling extension pointer results.
+static void AndroidAbsolutePath( TCHAR* Buf, INT BufSize )
+{
+	const TCHAR* GamePath = AndroidGamePath();
+	if( !GamePath[0] )
+		return;
+	if( Buf[0]=='.' && Buf[1]=='.' && (Buf[2]=='/' || Buf[2]=='\\') )
+	{
+		TCHAR Rebuilt[512];
+		appSprintf( Rebuilt, TEXT("%s/%s"), GamePath, Buf+3 );
+		appStrncpy( Buf, Rebuilt, BufSize );
+	}
+}
+#endif
+
 UBOOL appFindPackageFile( const TCHAR* In, const FGuid* Guid, TCHAR* Out )
 {
 	guard(appFindPackageFile);
@@ -1482,6 +1525,11 @@ UBOOL appFindPackageFile( const TCHAR* In, const FGuid* Guid, TCHAR* Out )
 				if( i<GSys->Paths.Num() )
 				{
 					appStrcat( Temp, *GSys->Paths(i) );
+#ifdef __ANDROID__
+					// Rewrite "../Foo/" -> "<GamePath>/Foo/" for SAF storage,
+					// before the "*" split so Ext stays valid. No-op on primary.
+					AndroidAbsolutePath( Temp, ARRAY_COUNT(Temp) );
+#endif
 					TCHAR* Ext2 = appStrstr(Temp,TEXT("*"));
 					if( Ext2 )
 						*Ext2++ = 0;
@@ -1538,6 +1586,11 @@ UBOOL appFindPackageFile( const TCHAR* In, const FGuid* Guid, TCHAR* Out )
 			if( i<GSys->Paths.Num() )
 			{
 				appStrcat( Temp, *GSys->Paths(i) );
+#ifdef __ANDROID__
+				// Rewrite "../Foo/" -> "<GamePath>/Foo/" for SAF storage,
+				// before the "*" split so Ext stays valid. No-op on primary.
+				AndroidAbsolutePath( Temp, ARRAY_COUNT(Temp) );
+#endif
 				TCHAR* Ext2 = appStrstr(Temp,TEXT("*"));
 				if( Ext2 )
 					*Ext2++ = 0;
