@@ -31,7 +31,14 @@ void TouchInterface::mouseMove(int action, float x, float y, float mouse_x, floa
     // reach the UWindow click handler.
     if(action == TOUCHMOUSE_MOVE)
     {
-        MouseMove(mouse_x * mobile_screen_width, mouse_y * mobile_screen_height);
+        // The UWindow cursor lives in the fixed logical UI canvas (UILogicalHeight
+        // = 480, see URender::CreateMasterFrame), NOT the real render resolution -
+        // so scale the drag by that fixed logical size. Scaling by the real
+        // mobile_screen_* makes the cursor race across the screen on high-res
+        // displays. Width uses the same aspect the logical canvas is built with.
+        const float UILogicalHeight = 480.0f;
+        float logicalWidth = UILogicalHeight * (float)mobile_screen_width / (float)mobile_screen_height;
+        MouseMove(mouse_x * logicalWidth, mouse_y * UILogicalHeight);
     }
     else if(action == TOUCHMOUSE_TAP)
     {
@@ -61,11 +68,8 @@ void TouchInterface::createControls(std::string filesPath)
     //Menu -------------------------------------------
     //------------------------------------------------------
     tcMenuMain->addControl(new touchcontrols::Button("back", touchcontrols::RectF(0, 0, 2, 2), "back_button", KEY_BACK_BUTTON));
-    tcMenuMain->addControl(new touchcontrols::Button("down_arrow", touchcontrols::RectF(20, 13, 23, 16), "arrow_down", PORT_ACT_MENU_DOWN));
-    tcMenuMain->addControl(new touchcontrols::Button("up_arrow", touchcontrols::RectF(20, 10, 23, 13), "arrow_up", PORT_ACT_MENU_UP));
-    tcMenuMain->addControl(new touchcontrols::Button("left_arrow", touchcontrols::RectF(17, 13, 20, 16), "arrow_left", PORT_ACT_MENU_LEFT));
-    tcMenuMain->addControl(new touchcontrols::Button("right_arrow", touchcontrols::RectF(23, 13, 26, 16), "arrow_right", PORT_ACT_MENU_RIGHT));
-    tcMenuMain->addControl(new touchcontrols::Button("enter", touchcontrols::RectF(0, 10, 6, 16), "enter", PORT_ACT_MENU_SELECT));
+    // Arrow keys + enter removed: UT's menu is mouse-driven (trackpad + left
+    // click below), so keyboard-style nav buttons aren't needed.
     tcMenuMain->addControl(new touchcontrols::Button("keyboard", touchcontrols::RectF(2, 0, 4, 2), "keyboard", KEY_SHOW_KBRD));
 
     tcMenuMain->addControl(new touchcontrols::Button("gamepad", touchcontrols::RectF(22, 0, 24, 2), "gamepad", KEY_SHOW_GAMEPAD));

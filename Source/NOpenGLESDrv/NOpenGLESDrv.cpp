@@ -250,6 +250,14 @@ void UNOpenGLESRenderDevice::Lock( FPlane FlashScale, FPlane FlashFog, FPlane Sc
 {
 	guard(UNOpenGLESRenderDevice::Lock);
 
+#ifdef __ANDROID__
+		// Set permanent state.
+		glEnable( GL_DEPTH_TEST );
+		glDepthMask( GL_TRUE );
+		glBlendFunc( GL_ONE, GL_ZERO );
+		glEnable( GL_BLEND );
+		glEnableVertexAttribArray( 0 );
+#endif
 
 	glClearColor( ScreenClear.X, ScreenClear.Y, ScreenClear.Z, ScreenClear.W );
 	glClearDepthf( 1.f );

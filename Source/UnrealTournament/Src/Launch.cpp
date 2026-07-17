@@ -20,6 +20,12 @@ Revision history:
 
 extern "C" {TCHAR THIS_PACKAGE[64]=TEXT("Launch");}
 
+#ifdef __ANDROID__
+// Defined in mobile/game_interface.cpp; drains queued touch input on the engine
+// thread once per tick (see MainLoop below).
+extern "C" void UT99_TickPortableActions();
+#endif
+
 // Memory allocator.
 #include "FMallocAnsi.h"
 FMallocAnsi Malloc;
@@ -207,6 +213,11 @@ static void MainLoop( UEngine* Engine )
 		guard(UpdateWorld);
 		DOUBLE NewTime   = appSeconds();
 		FLOAT  DeltaTime = NewTime - OldTime;
+#ifdef __ANDROID__
+		// Drain queued touch input (movement/look/fire/...) on the engine thread,
+		// just before the world ticks. Defined in mobile/game_interface.cpp.
+		UT99_TickPortableActions();
+#endif
 		Engine->Tick( DeltaTime );
 		if( GWindowManager )
 			GWindowManager->Tick( DeltaTime );
