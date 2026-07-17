@@ -20,6 +20,14 @@
 #include "NOpenALDrvPrivate.h"
 #include "UnRender.h"
 
+// TEMP DEBUG: direct logcat (tag ALDBG) - engine debugf isn't reliably mirrored here.
+#ifdef __ANDROID__
+#include <android/log.h>
+#define ALDBG(...) ((void)__android_log_print(ANDROID_LOG_INFO,"ALDBG",__VA_ARGS__))
+#else
+#define ALDBG(...) ((void)0)
+#endif
+
 /*-----------------------------------------------------------------------------
 	Global implementation.
 -----------------------------------------------------------------------------*/
@@ -343,6 +351,11 @@ void UNOpenALAudioSubsystem::RegisterSound( USound* Sound )
 	if( Sound->Handle )
 		return;
 
+	// v400: FSoundData::Load() itself re-enters RegisterSound() the first time it
+	// pages the data in from disk. Set a sentinel handle first so that reentrant
+	// call is a no-op (matches UGenericAudioSubsystem::RegisterSound).
+	Sound->Handle = (void*)-1;
+
 	// v400: sound data is a TLazyArray - page it in, then release after upload.
 	Sound->Data.Load();
 	check( Sound->Data.Num() );
@@ -352,6 +365,7 @@ void UNOpenALAudioSubsystem::RegisterSound( USound* Sound )
 	{
 		debugf( NAME_Warning, TEXT("Sound %s is not a valid WAV file"), Sound->GetName() );
 		Sound->Data.Unload();
+		Sound->Handle = NULL; // registration failed - clear the sentinel
 		return;
 	}
 
@@ -482,6 +496,13 @@ void UNOpenALAudioSubsystem::UpdateVoice( INT Num, const ENVoiceOp Op )
 		alSource3i( Source, AL_AUXILIARY_SEND_FILTER, (ALint)ReverbSlot, 0, AL_FILTER_NULL );
 
 	// Play or stop if needed.
+	if( Op == NVOP_Play )
+	{
+		ALenum e = alGetError();
+		ALDBG( "  UpdateVoice PLAY: num=%d src=%u rel=%d gain=%f pitch=%f buf=%u loc=(%f,%f,%f) alErr=%04x",
+			Num, (DWORD)Source, (INT)SourceRelative, Voice.Volume * ( SoundVolume / 255.f ), Voice.Pitch,
+			(DWORD)Voice.Buffer, ALLocation.X, ALLocation.Y, ALLocation.Z, e );
+	}
 	switch( Op )
 	{
 		case ENVoiceOp::NVOP_Play:  alSourcePlay( Source ); break;
@@ -496,6 +517,12 @@ void UNOpenALAudioSubsystem::UpdateVoice( INT Num, const ENVoiceOp Op )
 UBOOL UNOpenALAudioSubsystem::PlaySound( AActor* Actor, INT Id, USound* Sound, FVector Location, FLOAT Volume, FLOAT Radius, FLOAT Pitch )
 {
 	guard(UNOpenALAudioSubsystem::PlaySound)
+
+	// TEMP DEBUG: trace every PlaySound request.
+	ALDBG( "PlaySound: snd=%s id=%d slot=%d hnd=%p vol=%f rad=%f pitch=%f loc=(%f,%f,%f) actor=%s vp=%p",
+		Sound ? TCHAR_TO_ANSI(Sound->GetName()) : "NULL", Id, (Id&14)/2, Sound ? Sound->Handle : NULL,
+		Volume, Radius, Pitch, Location.X, Location.Y, Location.Z,
+		Actor ? TCHAR_TO_ANSI(Actor->GetName()) : "NULL", Viewport );
 
 	if( !Viewport )
 		return false;
@@ -526,9 +553,18 @@ UBOOL UNOpenALAudioSubsystem::PlaySound( AActor* Actor, INT Id, USound* Sound, F
 		}
 	}
 
+	// v400: sounds are lazily loaded and nothing pages the data in before
+	// playback, so most sounds are never registered via FSoundData::Load().
+	// Register on demand here (the real ALAudio for UT99 does the same).
+	if( Sound && !Sound->Handle )
+		RegisterSound( Sound );
+
 	// If we ran out of voices or the sound is too low priority, bail.
 	if( !Voice || !Sound || !Sound->Handle )
+	{
+		ALDBG( "  BAIL: voice=%p sound=%p handle=%p", Voice, Sound, Sound ? Sound->Handle : NULL );
 		return false;
+	}
 
 	ALuint Buf = (ALuint)(UPTRINT)Sound->Handle;
 	check( alIsBuffer( Buf ) );
