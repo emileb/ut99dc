@@ -81,7 +81,7 @@ void TouchInterface::createControls(std::string filesPath)
     tcMenuMain->addControl(brightnessSlide);
 
     // Left mouse button, for clicking the UWindow menu item under the cursor.
-    tcMenuMain->addControl(new touchcontrols::Button("left_mouse", touchcontrols::RectF(23, 4, 26, 7), "left_mouse", PORT_ACT_MOUSE_LEFT));
+    //tcMenuMain->addControl(new touchcontrols::Button("left_mouse", touchcontrols::RectF(23, 4, 26, 7), "left_mouse", PORT_ACT_MOUSE_LEFT));
 
     // Full-screen invisible trackpad: relative-drag moves the UWindow menu
     // cursor, tap clicks. Added last so the buttons above take touch priority.

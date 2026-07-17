@@ -20,14 +20,6 @@
 #include "NOpenALDrvPrivate.h"
 #include "UnRender.h"
 
-// TEMP DEBUG: direct logcat (tag ALDBG) - engine debugf isn't reliably mirrored here.
-#ifdef __ANDROID__
-#include <android/log.h>
-#define ALDBG(...) ((void)__android_log_print(ANDROID_LOG_INFO,"ALDBG",__VA_ARGS__))
-#else
-#define ALDBG(...) ((void)0)
-#endif
-
 /*-----------------------------------------------------------------------------
 	Global implementation.
 -----------------------------------------------------------------------------*/
@@ -439,17 +431,24 @@ void UNOpenALAudioSubsystem::UpdateVoice( INT Num, const ENVoiceOp Op )
 	ALVelocity.Y = Voice.Velocity.Y;
 	ALVelocity.Z = -Voice.Velocity.Z;
 
+	// A sound emitted by the actor the listener is attached to (the local player)
+	// is a first-person/UI sound - always play it 2D. This also covers menu SFX:
+	// while a menu is up the viewport isn't realtime, so Update() never refreshes
+	// ListenerCoords and the distance test below would wrongly spatialize (and
+	// HRTF-filter) UI sounds against a stale listener.
+	const UBOOL OnListener = ( Viewport && Viewport->Actor && Voice.Actor == Viewport->Actor );
+
 	// If the source is close enough to the listener, don't spatialize it.
 	DWORD SourceRelative;
 	FVector ALLocation;
-	if( FDistSquared( ListenerCoords.Origin, Voice.Location ) < Square( Voice.Radius * DESPATIALIZE_FACTOR ) )
+	if( OnListener || FDistSquared( ListenerCoords.Origin, Voice.Location ) < Square( Voice.Radius * DESPATIALIZE_FACTOR ) )
 	{
 		SourceRelative = AL_TRUE;
 		ALLocation.X = 0.f;
 		ALLocation.Y = 0.f;
 		ALLocation.Z = 0.f;
 		// If the source is ON the listener, also reset the velocity so we don't doppler our own voice.
-		if( Viewport && Viewport->Actor && Voice.Actor == Viewport->Actor )
+		if( OnListener )
 		{
 			ALVelocity.X = 0.f;
 			ALVelocity.Y = 0.f;
@@ -496,13 +495,6 @@ void UNOpenALAudioSubsystem::UpdateVoice( INT Num, const ENVoiceOp Op )
 		alSource3i( Source, AL_AUXILIARY_SEND_FILTER, (ALint)ReverbSlot, 0, AL_FILTER_NULL );
 
 	// Play or stop if needed.
-	if( Op == NVOP_Play )
-	{
-		ALenum e = alGetError();
-		ALDBG( "  UpdateVoice PLAY: num=%d src=%u rel=%d gain=%f pitch=%f buf=%u loc=(%f,%f,%f) alErr=%04x",
-			Num, (DWORD)Source, (INT)SourceRelative, Voice.Volume * ( SoundVolume / 255.f ), Voice.Pitch,
-			(DWORD)Voice.Buffer, ALLocation.X, ALLocation.Y, ALLocation.Z, e );
-	}
 	switch( Op )
 	{
 		case ENVoiceOp::NVOP_Play:  alSourcePlay( Source ); break;
@@ -517,12 +509,6 @@ void UNOpenALAudioSubsystem::UpdateVoice( INT Num, const ENVoiceOp Op )
 UBOOL UNOpenALAudioSubsystem::PlaySound( AActor* Actor, INT Id, USound* Sound, FVector Location, FLOAT Volume, FLOAT Radius, FLOAT Pitch )
 {
 	guard(UNOpenALAudioSubsystem::PlaySound)
-
-	// TEMP DEBUG: trace every PlaySound request.
-	ALDBG( "PlaySound: snd=%s id=%d slot=%d hnd=%p vol=%f rad=%f pitch=%f loc=(%f,%f,%f) actor=%s vp=%p",
-		Sound ? TCHAR_TO_ANSI(Sound->GetName()) : "NULL", Id, (Id&14)/2, Sound ? Sound->Handle : NULL,
-		Volume, Radius, Pitch, Location.X, Location.Y, Location.Z,
-		Actor ? TCHAR_TO_ANSI(Actor->GetName()) : "NULL", Viewport );
 
 	if( !Viewport )
 		return false;
@@ -561,10 +547,7 @@ UBOOL UNOpenALAudioSubsystem::PlaySound( AActor* Actor, INT Id, USound* Sound, F
 
 	// If we ran out of voices or the sound is too low priority, bail.
 	if( !Voice || !Sound || !Sound->Handle )
-	{
-		ALDBG( "  BAIL: voice=%p sound=%p handle=%p", Voice, Sound, Sound ? Sound->Handle : NULL );
 		return false;
-	}
 
 	ALuint Buf = (ALuint)(UPTRINT)Sound->Handle;
 	check( alIsBuffer( Buf ) );
