@@ -89,5 +89,8 @@ if(ANDROID)
     "${CLIBS_DIR}/fts.c"
     "${CLIBS_DIR}/rand.c"
   )
-  target_link_libraries(${PROJECT_NAME} SDL2_image touchcontrols saffal log)
+  # openal-soft/xmp-lite: NOpenALDrv (whole-archived above via INSTALL_TARGETS)
+  # references them by raw path, but the final .so needs them as an explicit
+  # link dependency too.
+  target_link_libraries(${PROJECT_NAME} SDL2_image touchcontrols saffal log openal-soft xmp-lite)
 endif()

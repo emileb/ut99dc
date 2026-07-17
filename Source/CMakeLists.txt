@@ -23,6 +23,7 @@ option(BUILD_EDITOR "Build Editor (GUI support requires Windows)" ON)
 option(BUILD_NOPENGLDRV "Build NOpenGLDrv" OFF)
 option(BUILD_PVRDRV "Build PVRDrv (Dreamcast only)" OFF)
 option(BUILD_NULLSOUNDDRV "Build SoundDrv (Null driver)" ON)
+option(BUILD_NOPENALDRV "Build NOpenALDrv (OpenAL sound driver)" OFF)
 option(BUILD_AICADRV "Build AICADrv (Dreamcast AICA sound driver)" OFF)
 option(BUILD_DCUTIL "Build DCUtil" ON)
 option(BUILD_STATIC "Link everything into a single binary" OFF)
@@ -63,10 +64,12 @@ if(ANDROID)
   set(BUILD_DCUTIL OFF)
   set(BUILD_AICADRV OFF)
   set(BUILD_PVRDRV OFF)
-  # No audio backend on Android yet (Phase 1): the game runs with UseSound=False,
-  # exactly like the desktop build. Source/SoundDrv doesn't exist, so the null
-  # driver can't be built either.
+  # Source/SoundDrv doesn't exist, so the null driver can't be built.
   set(BUILD_NULLSOUNDDRV OFF)
+  # OpenAL sound driver (ported from the sibling UE1 module). Forced as the
+  # AudioDevice regardless of the .ini in UEngine::InitAudio (Engine/Src/
+  # UnEngine.cpp). Needs openal-soft + libxmp, imported by the wrapper CMake.
+  set(BUILD_NOPENALDRV ON)
   # ARM defaults char to unsigned and enums to variable-width; the engine
   # requires signed char (static_assert in UnGnuG.h) and int-width enums.
   add_compile_options(-fsigned-char -fno-short-enums)
@@ -304,6 +307,19 @@ endif()
 if(BUILD_NULLSOUNDDRV)
   add_subdirectory(SoundDrv)
   list(APPEND INSTALL_TARGETS SoundDrv)
+endif()
+
+if(BUILD_NOPENALDRV)
+  # OPENAL_*/LIBXMP_* (include dirs + import libs) are set by the wrapper
+  # CMakeLists before add_subdirectory; fall back to bare link flags otherwise.
+  if(NOT DEFINED OPENAL_LIBRARY)
+    set(OPENAL_LIBRARY "-lopenal")
+  endif()
+  if(NOT DEFINED LIBXMP_LIBRARY)
+    set(LIBXMP_LIBRARY "-lxmp")
+  endif()
+  add_subdirectory(NOpenALDrv)
+  list(APPEND INSTALL_TARGETS NOpenALDrv)
 endif()
 
 if(BUILD_AICADRV)

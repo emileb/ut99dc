@@ -60,6 +60,23 @@ void UEngine::StaticConstructor()
 void UEngine::InitAudio()
 {
 	guard(UEngine::InitAudio);
+#ifdef __ANDROID__
+	// Force our OpenAL driver regardless of the .ini (UseSound / AudioDevice): a
+	// retail ini names Windows drivers and often has UseSound=False. A plain
+	// (non-"ini:") class path bypasses the config indirection - same approach as
+	// the sibling UE1 module.
+	if( GIsClient && !ParseParam(appCmdLine(),TEXT("NOSOUND")) )
+	{
+		UClass* AudioClass = StaticLoadClass( UAudioSubsystem::StaticClass(), NULL, TEXT("NOpenALDrv.NOpenALAudioSubsystem"), NULL, LOAD_NoFail, NULL );
+		Audio = ConstructObject<UAudioSubsystem>( AudioClass );
+		if( !Audio->Init() )
+		{
+			debugf( NAME_Log, TEXT("Audio initialization failed.") );
+			delete Audio;
+			Audio = NULL;
+		}
+	}
+#else
 	if
 	(	UseSound
 	&&	GIsClient
@@ -74,6 +91,7 @@ void UEngine::InitAudio()
 			Audio = NULL;
 		}
 	}
+#endif
 	unguard;
 }
 
