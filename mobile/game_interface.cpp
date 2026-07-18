@@ -1,45 +1,12 @@
 /*=============================================================================
 	game_interface.cpp: OpenTouch <-> UT99 bridge.
-
-	Ported from the sibling UE1 module's game_interface.cpp - UT99 is a later
-	UE1 generation with the same UInput/UViewport architecture, so the input
-	mechanism is identical; only a few v400 details differ (Exec/Process take
-	FOutputDevice& not *, output device is *GLog). The UT99-specific stdout/
-	stderr->logcat pump and PortableInit stay from the Phase-1 stub.
-
-	Menu navigation, the on-screen keyboard, the generic custom buttons and
-	mouse-look are synthesized as real SDL key/mouse events (sendKey/MouseMove/
-	MouseButton) - exactly what NSDLViewport would see from real hardware. That's
-	correct and rebind-proof for those: UT's menu/console reads raw EInputKey
-	codes directly (bypassing Bindings), and the custom buttons are *meant* to be
-	rebindable.
-
-	Movement/turn/fire/jump/weapons DO go through the player-editable
-	Bindings[key]->Aliases[] table when driven by a real key, so to stay correct
-	no matter what the player rebinds they call the engine's real action directly
-	via UViewport::Exec() with the exact alias/raw command a bound key resolves to
-	(e.g. "Fire", "Axis aBaseY Speed=+300.0"). Continuous movement/turn additionally
-	need UE1's per-tick input pump (UInput::Process against a real EInputKey), so
-	those go through reserved, otherwise-unreachable key slots (IK_UnknownXX; no
-	real device can generate them) bound once to the raw axis command.
-
-	Threading: the engine runs single-threaded on its own thread (PortableInit ->
-	main() -> MainLoop(), never returns) while Portable* is called from the Android
-	touch thread. sendKey/MouseButton/MouseMove queue SDL events and are thread-
-	safe. Everything that calls Process()/Exec() directly runs ONLY from
-	UT99_TickPortableActions() (called once per tick from MainLoop, Launch.cpp) on
-	the engine thread; the Portable* setters only ever write volatile flags/floats
-	or push onto a ring buffer.
-
-	Note: isPlayerRunning / MouseButton / MouseMove / MouseMoveAbsolute are
-	defined by Clibs_OpenTouch/android_jni_inc.cpp, not here.
+	Ported from the sibling UE1 module; see CLAUDE.md "Gameplay input" for the
+	design (rebind-proof Exec actions, reserved-key axis pump, threading rules).
+	MouseButton/MouseMove etc are defined by Clibs_OpenTouch/android_jni_inc.cpp.
 =============================================================================*/
 
-// SDL first: on Android SDL_main.h remaps main -> SDL_main, and Launch.cpp
-// (the engine's real entry) is compiled with the same remap. The C system
-// headers below (esp. <pthread.h> -> <time.h>) must precede Engine.h, whose
-// Core UnFile.h defines a function-like clock() macro that mangles <time.h>'s
-// clock() declaration.
+// SDL first (main -> SDL_main remap); C system headers must precede Engine.h,
+// whose clock() macro mangles <time.h>.
 #include "SDL2/SDL.h"
 
 #include <unistd.h>
@@ -52,13 +19,10 @@
 #include "Engine.h"
 #include "game_interface.h"
 
-// The engine's entry point (UnrealTournament/Src/Launch.cpp). Same main->SDL_main
-// remap applies here because SDL2/SDL.h is included above.
+// Engine entry point (UnrealTournament/Src/Launch.cpp).
 extern int main(int argc, char **argv);
 
-// SDL's internal keyboard injection: queues a real key event under SDL's lock,
-// safe from the touch thread, consumed on the engine thread in
-// NSDLViewport::TickInput().
+// SDL's internal key injection: queues a real event, safe from any thread.
 extern "C" int SDL_SendKeyboardKey(Uint8 state, SDL_Scancode scancode);
 
 // Defined in NSDLDrv/Src/NSDLViewport.cpp (Android-only).
@@ -70,13 +34,8 @@ static void sendKey(int state, SDL_Scancode scancode)
     SDL_SendKeyboardKey(state ? SDL_PRESSED : SDL_RELEASED, scancode);
 }
 
-// --- stdout/stderr -> logcat pump -------------------------------------------
-//
-// UT99's critical errors (appErrorf, guard-history dumps) go through
-// FOutputDeviceAnsiError, which printf()s to stdout/stderr - invisible on
-// Android. Redirect both to logcat so startup failures are visible. Normal
-// debugf output is separately mirrored by FOutputDeviceFile's own LOGI hook.
-
+// Critical errors (appErrorf) print to stdout/stderr - invisible on Android,
+// so pump both to logcat.
 static void *ut99_stdio_logger(void *arg)
 {
     int fd = (int)(intptr_t)arg;
@@ -133,20 +92,13 @@ void PortableBackButton(void)
 
 int PortableKeyEvent(int state, int code, int unitcode)
 {
-    // code is already an SDL_Scancode (on-screen keyboard, hardware keys, and
-    // the menu/back button all route here).
+    // code is already an SDL_Scancode.
     sendKey(state, (SDL_Scancode)code);
     return 0;
 }
 
-// --- RESERVED KEYS -----------------------------------------------------------
-//
-// EInputKey slots no real keyboard/mouse/gamepad can generate (NSDLViewport's
-// SDL_Scancode -> EInputKey table never targets them) and which never appear in
-// UT's "press a key to bind" control options - so nothing the player does can
-// retarget or interfere with them. Each is bound to a *signed* raw Axis command
-// and driven with a signed magnitude every tick (positive = forward/right,
-// negative = the opposite) - one key does both directions.
+// Reserved EInputKey slots no real device can generate, each bound to a signed
+// raw Axis command and driven per-tick like a real analog joystick axis.
 enum
 {
     RK_MOVE_AXIS   = IK_Unknown88, // +forward / -back
@@ -161,9 +113,7 @@ static void ensureReservedKeysBound(UViewport *vp)
     if (s_reservedKeysBound)
         return;
 
-    // Same raw commands MoveForward/TurnRight/StrafeRight resolve to in the ini
-    // (positive-Speed half only - our own sign supplies the direction), so these
-    // keep tracking the ini speeds if ever tuned, same as a real key would.
+    // Same raw commands the ini's MoveForward/TurnRight/StrafeRight resolve to.
     vp->Input->Bindings[RK_MOVE_AXIS]   = TEXT("Axis aBaseY Speed=+300.0");
     vp->Input->Bindings[RK_TURN_AXIS]   = TEXT("Axis aBaseX Speed=+150.0");
     vp->Input->Bindings[RK_STRAFE_AXIS] = TEXT("Axis aStrafe Speed=+300.0");
@@ -171,21 +121,17 @@ static void ensureReservedKeysBound(UViewport *vp)
     s_reservedKeysBound = true;
 }
 
-// --- Cross-thread state ------------------------------------------------------
-//
-// Set from PortableAction/PortableMove*/PortableLook* (touch thread). Only ever
-// read from UT99_TickPortableActions() (engine thread).
+// Cross-thread state: written on the touch thread, read only by
+// UT99_TickPortableActions() (engine thread).
 
-// Movement/turn, each -1..+1. Digital (D-pad) input sets a fixed +-1; analog
-// (joystick) sets the actual stick fraction, so a soft push moves slower.
+// Movement/turn, -1..+1 (digital sets a fixed +-1, analog the stick fraction).
 static volatile float s_moveAxis = 0.0f, s_turnAxis = 0.0f, s_strafeAxis = 0.0f;
 
 // Held real buttons, diffed against the last-applied state each tick.
 static volatile bool s_wantFire = false, s_wantAltFire = false, s_wantDuck = false;
 static volatile bool s_wantWalk = false, s_wantStrafeMod = false;
 
-// One-shot commands (Jump, weapon switches, ...). Single-producer (touch
-// thread) / single-consumer (engine thread) ring buffer.
+// One-shot commands, single-producer / single-consumer ring buffer.
 #define CMD_QUEUE_LEN 32
 static char s_cmdQueue[CMD_QUEUE_LEN][32];
 static volatile int s_cmdAvail = 0;
@@ -201,7 +147,7 @@ static void postCommand(const char *cmd)
     s_cmdAvail++;
 }
 
-// Starting points, in the same ballpark as TFE/OpenJK's mouse scales. Tune to taste.
+// Starting points, tune to taste.
 static const float LOOK_MOUSE_YAW_SCALE = 3500.0f;
 static const float LOOK_MOUSE_PITCH_SCALE = 1000.0f;
 static const float LOOK_JOY_YAW_SCALE = 40.0f;
@@ -209,9 +155,7 @@ static const float LOOK_JOY_PITCH_SCALE = 30.0f;
 
 void PortableAction(int state, int action)
 {
-    // Generic user-bindable buttons: KP_1-KP_0 for 0-9, A-P for 10-25 (same
-    // scheme OpenJK uses). Meant to be rebindable via UT's own control options,
-    // so they go through real SDL keys.
+    // Rebindable custom buttons: KP_1-KP_0 for 0-9, A-P for 10-25 (OpenJK scheme).
     if (action >= PORT_ACT_CUSTOM_0 && action <= PORT_ACT_CUSTOM_25)
     {
         if (action <= PORT_ACT_CUSTOM_9)
@@ -223,8 +167,7 @@ void PortableAction(int state, int action)
 
     switch (action)
     {
-        // --- Menu navigation: UT's menu/console reads these EInputKeys
-        // directly, bypassing Bindings - real SDL keys are correct here.
+        // Menu/console reads raw EInputKeys directly - real SDL keys are correct.
         case PORT_ACT_MENU_UP:      sendKey(state, SDL_SCANCODE_UP);      return;
         case PORT_ACT_MENU_DOWN:    sendKey(state, SDL_SCANCODE_DOWN);    return;
         case PORT_ACT_MENU_LEFT:    sendKey(state, SDL_SCANCODE_LEFT);    return;
@@ -239,8 +182,7 @@ void PortableAction(int state, int action)
         case PORT_ACT_MOUSE_LEFT:   MouseButton(state, BUTTON_PRIMARY);   return;
         case PORT_ACT_MOUSE_RIGHT:  MouseButton(state, BUTTON_SECONDARY); return;
 
-        // --- Digital movement/turn: same -1/0/+1 axis PortableMove*/analog
-        // sticks use, so both input styles reach the engine the same way.
+        // Digital movement/turn: same axes the analog sticks use.
         case PORT_ACT_FWD:         s_moveAxis = state ? 1.0f : 0.0f;    return;
         case PORT_ACT_BACK:        s_moveAxis = state ? -1.0f : 0.0f;   return;
         case PORT_ACT_LEFT:        s_turnAxis = state ? -1.0f : 0.0f;   return; // turn left
@@ -248,7 +190,7 @@ void PortableAction(int state, int action)
         case PORT_ACT_MOVE_LEFT:   s_strafeAxis = state ? -1.0f : 0.0f; return;
         case PORT_ACT_MOVE_RIGHT:  s_strafeAxis = state ? 1.0f : 0.0f;  return;
 
-        // --- Held real buttons/aliases ---
+        // Held aliases.
         case PORT_ACT_STRAFE:      s_wantStrafeMod = state != 0;   return; // hold: Left/Right turn -> strafe
         case PORT_ACT_ATTACK:      s_wantFire = state != 0;        return;
         case PORT_ACT_ALT_ATTACK:

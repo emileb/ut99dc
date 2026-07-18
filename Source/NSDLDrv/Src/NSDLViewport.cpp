@@ -899,6 +899,21 @@ UBOOL UNSDLViewport::TickInput()
 {
 	guard(UNSDLViewport::TickInput);
 
+#ifdef __ANDROID__
+	// Keep SDL mouse capture (relative mode) permanently ON. The UWindow menu
+	// cursor is driven by the *delta* path (rel motion -> MouseDelta +
+	// IK_MouseX/Y -> console moves the cursor), not the absolute MousePosition
+	// path - verified on-device: with capture off, drags update MousePosition
+	// and the cursor stays frozen; after a click captured the mouse, the same
+	// drags moved it. The engine's pause logic (UGameEngine::Tick) releases
+	// capture whenever the menu opens (IsFullscreen() is false under SDL
+	// Android), which is what forced a "tap once before the mouse moves" - on a
+	// touch screen there's no real cursor to give back, so just re-capture.
+	// Conditional, so the (rare) toggle only happens after the engine's release.
+	if( !SDL_GetRelativeMouseMode() )
+		SetMouseCapture( 1, 1, 0 );
+#endif
+
 	SDL_Event Ev;
 	INT Tmp;
 	const FLOAT CurTime = appSeconds();
