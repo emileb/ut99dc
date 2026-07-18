@@ -1,10 +1,7 @@
 /*=============================================================================
 	NOpenALDrv.cpp: OpenAL audio subsystem for UT99 (engine v400).
-	Ported from the sibling UE1 (v200) NOpenALDrv - see NOpenALDrvPrivate.h for
-	the v400 API deltas. All engine-facing logic is unchanged; only the
-	subsystem-registration boilerplate and a handful of v400 field/type
-	differences (TLazyArray sound data, slot-based looping, Exec signature)
-	are adapted.
+	Ported from the sibling UE1 (v200) NOpenALDrv; see CLAUDE.md "Audio (OpenAL)"
+	for the v400 API deltas.
 =============================================================================*/
 
 #include <stdlib.h>
@@ -64,6 +61,7 @@ UBOOL UNOpenALAudioSubsystem::Init()
 	guard(UNOpenALAudioSubsystem::Init)
 
 	Viewport = NULL;
+	Paused = false;
 	Device = alcOpenDevice( NULL );
 	if( !Device )
 	{
@@ -1013,9 +1011,48 @@ UBOOL UNOpenALAudioSubsystem::Exec( const TCHAR* Cmd, FOutputDevice& Ar )
 			xmp_set_player( MusicCtx, XMP_PLAYER_INTERP, MusicInterpolation );
 		return true;
 	}
+	else if( ParseCommand( &Cmd, TEXT("PauseAudio") ) )
+	{
+		PauseDevice();
+		return true;
+	}
+	else if( ParseCommand( &Cmd, TEXT("ResumeAudio") ) )
+	{
+		ResumeDevice();
+		return true;
+	}
 
 	return false;
 
+	unguard;
+}
+
+//
+// Pause/resume all audio output. Driven by the SDL window minimize/restore
+// events (NSDLViewport) so music and sounds stop while the app is backgrounded
+// - openal-soft otherwise keeps its own mixer thread running. Uses the whole-
+// device pause extension so a single call freezes music streaming and every
+// voice, and resumes them exactly where they left off.
+//
+void UNOpenALAudioSubsystem::PauseDevice()
+{
+	guard(UNOpenALAudioSubsystem::PauseDevice)
+	if( Device && !Paused )
+	{
+		alcDevicePauseSOFT( Device );
+		Paused = true;
+	}
+	unguard;
+}
+
+void UNOpenALAudioSubsystem::ResumeDevice()
+{
+	guard(UNOpenALAudioSubsystem::ResumeDevice)
+	if( Device && Paused )
+	{
+		alcDeviceResumeSOFT( Device );
+		Paused = false;
+	}
 	unguard;
 }
 

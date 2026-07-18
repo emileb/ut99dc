@@ -1,18 +1,10 @@
 /*=============================================================================
-	NOpenALThread.h: self-contained POSIX threading shim for NOpenALDrv.
-
-	The sibling UE1 fork carries a Core threading API (UnThread.h:
-	appThreadSpawn/FMutex/FScopedLock). UT99's Core has none, so the OpenAL
-	driver's music-streaming thread uses these local pthreads wrappers instead -
-	API-compatible with UE1's UnThread.h so NOpenALDrv.cpp compiles unchanged.
-	POSIX-only, which covers both Android and the macOS desktop build.
+	NOpenALThread.h: pthreads shim for NOpenALDrv, API-compatible with the UE1
+	fork's UnThread.h (UT99's Core has no threading API).
 =============================================================================*/
 #pragma once
 
-// This header is included after Core, which defines a function-like clock()
-// timing macro (UnFile.h) that mangles <time.h>'s `clock_t clock(void)`
-// declaration pulled in transitively by <pthread.h>. Suspend it across the
-// include.
+// Core's clock() macro (UnFile.h) mangles <time.h> - suspend it for <pthread.h>.
 #pragma push_macro("clock")
 #undef clock
 #include <pthread.h>
@@ -22,9 +14,7 @@ typedef void* UTHREAD;
 typedef void* THREAD_RET;
 typedef THREAD_RET ( *THREAD_FUNC )( void* Arg );
 
-// Internal thread record. Always joinable: NOpenALDrv always pairs a spawn with
-// appThreadJoin() in StopMusicThread(), so we ignore bDetach (detaching would
-// make the later join undefined).
+// Always joinable (spawns are always paired with appThreadJoin), so bDetach is ignored.
 struct FALThreadRec
 {
 	pthread_t   Thread;
@@ -62,8 +52,7 @@ inline THREAD_RET appThreadJoin( UTHREAD Thread )
 	return Ret;
 }
 
-// Recursive mutex - NOpenALDrv locks re-entrantly (e.g. UnregisterMusic holds
-// the lock and calls StopMusic, which locks again).
+// Recursive: NOpenALDrv locks re-entrantly (UnregisterMusic -> StopMusic).
 class FMutex
 {
 public:

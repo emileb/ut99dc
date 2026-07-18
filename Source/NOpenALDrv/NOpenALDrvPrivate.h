@@ -1,13 +1,7 @@
 /*=============================================================================
 	NOpenALDrvPrivate.h: OpenAL audio subsystem for UT99 (engine v400).
-
-	Ported from the sibling UE1 (v200) NOpenALDrv. v400 API deltas handled here:
-	- StaticConstructor() property registration (v200 used InternalClassInitializer).
-	- Exec( const TCHAR*, FOutputDevice& ) signature.
-	- Extra UAudioSubsystem virtuals: GetViewport / RenderAudioGeometry / PostRender.
-	- DeviceName config prop dropped: v400 has no fixed-array UStringProperty
-	  (only FString UStrProperty), and Android has a single output device anyway.
-	Threading comes from the local NOpenALThread.h shim (UT99 Core has no thread API).
+	Ported from the sibling UE1 (v200) NOpenALDrv; see CLAUDE.md "Audio (OpenAL)"
+	for the v400 API deltas. Threading via the local NOpenALThread.h shim.
 =============================================================================*/
 
 #include "AL/al.h"
@@ -84,6 +78,7 @@ private:
 	UViewport* Viewport;
 	ALCdevice* Device;
 	ALCcontext* Ctx;
+	UBOOL Paused; // whole-device pause while the app is backgrounded
 	ALuint Sources[MAX_SOURCES];
 	TArray<ALuint> Buffers;
 	INT NextId;
@@ -135,6 +130,9 @@ private:
 		UBOOL Looping;
 		UBOOL BufferChanged = false;
 	} Voices[MAX_SOURCES];
+
+	void PauseDevice();
+	void ResumeDevice();
 
 	void InitReverbEffect();
 	void UpdateReverb( FPointRegion& Region );
