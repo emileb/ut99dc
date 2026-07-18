@@ -267,7 +267,7 @@ endif()
 
 # Subprojects
 
-set(INSTALL_TARGETS Core Engine Render IpDrv Fire)
+set(INSTALL_TARGETS Core Engine Render IpDrv Fire UWeb)
 
 set(CMAKE_SHARED_LIBRARY_PREFIX "")
 
@@ -277,6 +277,7 @@ add_subdirectory(Engine)
 add_subdirectory(Render)
 add_subdirectory(IpDrv)
 add_subdirectory(Fire)
+add_subdirectory(UWeb)
 #add_subdirectory(UCC)
 
 if(USE_SDL)

@@ -11,8 +11,7 @@
 -----------------------------------------------------------------------------*/
 
 #ifdef __ANDROID__
-// Defined in UnMisc.cpp: rewrites a bare System-relative config/.int filename to
-// an absolute <GamePath>/System/ path so it can be opened on SAF storage.
+// UnMisc.cpp: rewrite a bare config/.int filename to <GamePath>/System/ for SAF.
 CORE_API UBOOL appAndroidConfigPath( const TCHAR* In, TCHAR* Out );
 #endif
 
@@ -128,10 +127,7 @@ public:
 			appStrcpy(Filename,*SystemIni);
 
 #ifdef __ANDROID__
-		// SAF/secondary storage: .int (and any bare System-relative) config files
-		// can't be opened by relative name - rewrite to an absolute GamePath path.
-		// No-op on primary storage (no -GamePath) and for already-absolute names
-		// (the writable *.ini, redirected to user_files via -INI=/-USERINI=).
+		// SAF storage: bare .int/config names can't open by relative path.
 		TCHAR AndroidAbs[256];
 		if( appAndroidConfigPath( Filename, AndroidAbs ) )
 			appStrcpy( Filename, AndroidAbs );

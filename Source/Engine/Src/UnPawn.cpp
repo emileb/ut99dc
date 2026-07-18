@@ -285,6 +285,11 @@ void AActor::execGetMapName( FFrame& Stack, RESULT_DECL )
 					appStrcat( Tmp, TEXT("System") PATH_SEPARATOR );
 				}
 				appStrcat( Tmp, *GSys->Paths(i) );
+#ifdef __ANDROID__
+				// SAF storage: rewrite "../Maps/*.unr" to an absolute GamePath
+				// so the directory listing below can actually find anything.
+				appAndroidAbsolutePath( Tmp, ARRAY_COUNT(Tmp) );
+#endif
 				*appStrstr( Tmp, Wildcard )=0;
 				appStrcat( Tmp, *Prefix );
 				appStrcat( Tmp, Wildcard );

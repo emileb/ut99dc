@@ -202,7 +202,7 @@ void PortableAction(int state, int action)
         case PORT_ACT_SMART_TOGGLE_RUN:
         case PORT_ACT_ALWAYS_RUN:  s_wantWalk = state != 0;        return; // UT runs by default; this walks instead
 
-        // --- One-shot real commands, fire on press only ---
+        // One-shot commands, fire on press only.
         case PORT_ACT_JUMP:
         case PORT_ACT_UP:          if (state) postCommand("Jump");            return;
         case PORT_ACT_NEXT_WEP:    if (state) postCommand("NextWeapon");      return;
@@ -227,12 +227,8 @@ void PortableAction(int state, int action)
     }
 }
 
-// --- Analog movement ---------------------------------------------------------
-//
-// touch_interface_base.cpp scales its analog stick up to roughly +-15 (fwd) /
-// +-10 (strafe) at default sensitivity, not a normalised -1..1, so bring it back
-// to a roughly -1..1 fraction of full speed, matching what a real analog axis
-// reports (and what s_moveAxis/s_strafeAxis expect).
+// The touch stick reports roughly +-15/+-10 at default sensitivity, not -1..1 -
+// normalise back to a fraction of full speed.
 static const float FWD_STICK_RANGE = 5.0f;
 static const float STRAFE_STICK_RANGE = 3.0f;
 
@@ -252,13 +248,8 @@ void PortableMove(float fwd, float strafe)
     PortableMoveSide(strafe);
 }
 
-// --- Look / mouse ------------------------------------------------------------
-//
-// Genuinely analog either way (a real mouse axis isn't in UT's rebinding UI at
-// all), so this stays on the thread-safe MouseMove() injection, batched into one
-// MouseMove() per tick in UT99_TickPortableActions(). _mouse accumulates per-
-// swipe deltas, drained & zeroed each tick; _joy is a held magnitude, kept until
-// the touch layer sends a new value (goes to 0 on its own once recentred).
+// Look: batched into one MouseMove() per tick. _mouse accumulates swipe deltas
+// (zeroed each tick); _joy is a held magnitude until the stick recentres.
 static volatile float s_lookYawMouse = 0.0f, s_lookPitchMouse = 0.0f;
 static volatile float s_lookYawJoy = 0.0f, s_lookPitchJoy = 0.0f;
 
@@ -287,8 +278,7 @@ void PortableMouse(float dx, float dy)
 
 void PortableMouseAbs(float x, float y)
 {
-    // Menu mouse uses relative cursor drag (touch_interface_ut99.cpp), not
-    // tap-to-position, so nothing to do here.
+    // Menus use relative drag, not tap-to-position.
 }
 
 void PortableMouseButton(int state, int button, float dx, float dy)
@@ -332,12 +322,8 @@ int PortableGetMouseTapMode(void)
 
 // --- Engine-thread drain (called once per tick from MainLoop(), Launch.cpp) ---
 
-// Drives a reserved axis key exactly like NSDLViewport::TickInput() drives a
-// real analog joystick axis: every tick, while non-zero, feed the current
-// magnitude in as an IST_Axis delta scaled by real elapsed time. 100.0 makes a
-// full-deflection magnitude (+-1) match the rate of a real held key (IST_Hold
-// applies DeltaSeconds*Speed; IST_Axis applies 0.01*Delta*Speed - so Delta must
-// be ~100*DeltaSeconds for the two to match), scaling down proportionally.
+// Feed the current magnitude as an IST_Axis delta; 100*dt makes full deflection
+// match a real held key's rate (IST_Axis applies 0.01*Delta*Speed).
 static void applyAnalogAxis(UViewport *vp, int reservedKey, float magnitude, float deltaSeconds)
 {
     if (magnitude == 0.0f)
@@ -345,10 +331,8 @@ static void applyAnalogAxis(UViewport *vp, int reservedKey, float magnitude, flo
     vp->Input->Process(*GLog, (EInputKey)reservedKey, IST_Axis, magnitude * 100.0f * deltaSeconds);
 }
 
-// Same transition-on-change idea for a real alias name (Fire/AltFire/Duck/
-// Walking/Strafe) - simple flags with no continuous per-tick behaviour, so
-// Exec() is called directly, bracketed by the same press/release input-action
-// state Process() would set.
+// Transition-on-change hold of a real alias (Fire/Duck/...), bracketed by the
+// press/release input-action state Process() would set.
 static void applyAliasHold(UViewport *vp, const char *aliasName, bool want, bool &held)
 {
     if (want == held)
@@ -384,9 +368,7 @@ extern "C" void UT99_TickPortableActions()
     applyAliasHold(vp, "Walking", s_wantWalk, heldWalk);
     applyAliasHold(vp, "Strafe", s_wantStrafeMod, heldStrafeMod);
 
-    // _joy is a held magnitude re-sent every tick (not a discrete swipe delta
-    // like _mouse), so scale it by elapsed time (normalised to 60Hz) or turning
-    // speed would track the frame rate.
+    // _joy is re-sent every tick, so scale by elapsed time (60Hz reference).
     float joyFrameScale = deltaSeconds * 60.0f;
     float yaw = s_lookYawMouse + s_lookYawJoy * joyFrameScale;
     float pitch = s_lookPitchMouse + s_lookPitchJoy * joyFrameScale;
@@ -397,11 +379,8 @@ extern "C" void UT99_TickPortableActions()
 
     while (s_cmdUsed != s_cmdAvail)
     {
-        // IST_Press matters even for one-shots: a command that is itself an
-        // alias (e.g. "Jump", whose ini command is "Jump | Axis aUp Speed=+300.0")
-        // only cascades through Exec() while the input action is IST_Press;
-        // otherwise UInput::Exec()'s own alias lookup swallows it. A real keypress
-        // always has IST_Press set for the call, so match it.
+        // IST_Press required: alias-name commands (e.g. "Jump") only cascade
+        // through Exec() while the input action is IST_Press.
         vp->Input->SetInputAction(IST_Press, 0.0f);
         vp->Exec(s_cmdQueue[s_cmdUsed & (CMD_QUEUE_LEN - 1)], *GLog);
         vp->Input->SetInputAction(IST_None, 0.0f);

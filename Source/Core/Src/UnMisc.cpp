@@ -1447,17 +1447,9 @@ CORE_API UBOOL appSaveStringToFile( const FString& String, const TCHAR* Filename
 // Find a file.
 //
 #ifdef __ANDROID__
-// SAFFAL (the scoped-storage libc interceptor) decides whether a path is in
-// SAF-backed storage purely by string prefix - it does NOT resolve "../" or
-// consult the working directory (see getCanonicalPath()/isInSAF() in
-// SAFFAL/saffal/src/main/jni/Utils.cpp), so a CWD-relative path like
-// "../Maps/Foo.unr" (from GSys->Paths, e.g. "..\Maps\*.unr") can never match
-// its registered SAF root and silently falls through to a real (failing) open.
-// On Android we rewrite that same "one level up, into a sibling folder" shape
-// into an absolute path rooted at -GamePath= - the UT99 folder itself (System's
-// parent, i.e. exactly what "../" resolves to), passed by UT99Launcher.kt only
-// when the game data lives on secondary/SAF storage. Primary storage keeps
-// working via the original relative+chdir path (no -GamePath=, so this no-ops).
+// SAFFAL matches SAF storage by absolute path prefix and never resolves "../",
+// so relative lookups fail there. -GamePath= (the UT99 folder, passed by
+// UT99Launcher.kt only for SAF storage) lets us rewrite them absolute.
 static const TCHAR* AndroidGamePath()
 {
 	static TCHAR GamePath[256] = TEXT("");
@@ -1471,30 +1463,26 @@ static const TCHAR* AndroidGamePath()
 	return GamePath;
 }
 
-// Rewrites Buf in place from "../Foo/..." to "<GamePath>/Foo/...", if Buf starts
-// with ".." and a GamePath override is set. No-op otherwise (covers primary-
-// storage installs, which don't pass -GamePath=). Called before the "*" split so
-// no dangling extension pointer results.
-static void AndroidAbsolutePath( TCHAR* Buf, INT BufSize )
+// Rewrite "../Foo/..." (optionally prefixed with appBaseDir()'s "./") to
+// "<GamePath>/Foo/..." in place; no-op without -GamePath=.
+CORE_API void appAndroidAbsolutePath( TCHAR* Buf, INT BufSize )
 {
 	const TCHAR* GamePath = AndroidGamePath();
 	if( !GamePath[0] )
 		return;
-	if( Buf[0]=='.' && Buf[1]=='.' && (Buf[2]=='/' || Buf[2]=='\\') )
+	TCHAR* Start = Buf;
+	if( Start[0]=='.' && Start[1]=='/' )
+		Start += 2;
+	if( Start[0]=='.' && Start[1]=='.' && (Start[2]=='/' || Start[2]=='\\') )
 	{
 		TCHAR Rebuilt[512];
-		appSprintf( Rebuilt, TEXT("%s/%s"), GamePath, Buf+3 );
+		appSprintf( Rebuilt, TEXT("%s/%s"), GamePath, Start+3 );
 		appStrncpy( Buf, Rebuilt, BufSize );
 	}
 }
 
-// Rewrites a bare, System-relative config/localization filename (e.g. "Core.int",
-// "Botpack.int") to an absolute "<GamePath>/System/<name>". The engine's config
-// cache (FConfigCacheIni::Find) opens these by relative name, which SAFFAL can't
-// match on SAF storage (it matches by absolute prefix - same reason packages need
-// -GamePath), so localization silently fails there while packages still load.
-// No-op (returns 0) when no -GamePath is set (primary storage keeps working via
-// relative+chdir) or the name is already absolute. Declared in FConfigCacheIni.h.
+// Rewrite a bare config/.int filename to "<GamePath>/System/<name>" so it opens
+// on SAF storage; returns 0 (no-op) without -GamePath= or for absolute names.
 CORE_API UBOOL appAndroidConfigPath( const TCHAR* In, TCHAR* Out )
 {
 	const TCHAR* GamePath = AndroidGamePath();
@@ -1542,9 +1530,8 @@ UBOOL appFindPackageFile( const TCHAR* In, const FGuid* Guid, TCHAR* Out )
 				{
 					appStrcat( Temp, *GSys->Paths(i) );
 #ifdef __ANDROID__
-					// Rewrite "../Foo/" -> "<GamePath>/Foo/" for SAF storage,
-					// before the "*" split so Ext stays valid. No-op on primary.
-					AndroidAbsolutePath( Temp, ARRAY_COUNT(Temp) );
+					// SAF rewrite, before the "*" split so Ext stays valid.
+					appAndroidAbsolutePath( Temp, ARRAY_COUNT(Temp) );
 #endif
 					TCHAR* Ext2 = appStrstr(Temp,TEXT("*"));
 					if( Ext2 )
@@ -1603,9 +1590,8 @@ UBOOL appFindPackageFile( const TCHAR* In, const FGuid* Guid, TCHAR* Out )
 			{
 				appStrcat( Temp, *GSys->Paths(i) );
 #ifdef __ANDROID__
-				// Rewrite "../Foo/" -> "<GamePath>/Foo/" for SAF storage,
-				// before the "*" split so Ext stays valid. No-op on primary.
-				AndroidAbsolutePath( Temp, ARRAY_COUNT(Temp) );
+				// SAF rewrite, before the "*" split so Ext stays valid.
+				appAndroidAbsolutePath( Temp, ARRAY_COUNT(Temp) );
 #endif
 				TCHAR* Ext2 = appStrstr(Temp,TEXT("*"));
 				if( Ext2 )

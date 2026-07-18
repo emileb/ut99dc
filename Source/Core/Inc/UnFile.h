@@ -81,6 +81,11 @@ CORE_API class FGuid appCreateGuid();
 CORE_API void appCreateTempFilename( const TCHAR* Path, TCHAR* Result256 );
 CORE_API void appCleanFileCache();
 CORE_API UBOOL appFindPackageFile( const TCHAR* In, const FGuid* Guid, TCHAR* Out );
+#ifdef __ANDROID__
+// UnMisc.cpp: rewrite "../Foo/..." to "<GamePath>/Foo/..." in place, for SAF storage
+// directory-listing/lookup wildcards (Paths[]-derived); no-op without -GamePath=.
+CORE_API void appAndroidAbsolutePath( TCHAR* Buf, INT BufSize );
+#endif
 
 /*-----------------------------------------------------------------------------
 	Clipboard.

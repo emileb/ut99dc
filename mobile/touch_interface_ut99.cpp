@@ -24,18 +24,11 @@ void TouchInterface::openGLEnd()
 
 void TouchInterface::mouseMove(int action, float x, float y, float mouse_x, float mouse_y)
 {
-    // Relative-drag menu cursor. In the menu the engine drops mouse capture
-    // (SDL relative mode off - see UnGame.cpp), so an injected relative motion
-    // updates SDL's absolute position and reaches the engine's absolute
-    // MousePosition() path, moving the UWindow cursor; the tap's button events
-    // reach the UWindow click handler.
+    // Relative-drag menu cursor: drag moves the UWindow cursor, tap clicks.
     if(action == TOUCHMOUSE_MOVE)
     {
-        // The UWindow cursor lives in the fixed logical UI canvas (UILogicalHeight
-        // = 480, see URender::CreateMasterFrame), NOT the real render resolution -
-        // so scale the drag by that fixed logical size. Scaling by the real
-        // mobile_screen_* makes the cursor race across the screen on high-res
-        // displays. Width uses the same aspect the logical canvas is built with.
+        // Scale to the fixed 480-tall logical UI canvas the cursor lives in,
+        // not the real resolution (which made it race at high res).
         const float UILogicalHeight = 480.0f;
         float logicalWidth = UILogicalHeight * (float)mobile_screen_width / (float)mobile_screen_height;
         MouseMove(mouse_x * logicalWidth, mouse_y * UILogicalHeight);
@@ -68,9 +61,8 @@ void TouchInterface::createControls(std::string filesPath)
     //Menu -------------------------------------------
     //------------------------------------------------------
     tcMenuMain->addControl(new touchcontrols::Button("back", touchcontrols::RectF(0, 0, 2, 2), "back_button", KEY_BACK_BUTTON));
-    // Arrow keys + enter removed: UT's menu is mouse-driven (trackpad + left
-    // click below), so keyboard-style nav buttons aren't needed.
-    tcMenuMain->addControl(new touchcontrols::Button("keyboard", touchcontrols::RectF(2, 0, 4, 2), "keyboard", KEY_SHOW_KBRD));
+    // Arrow/enter buttons removed: the menu is mouse-driven.
+    tcMenuMain->addControl(new touchcontrols::Button("keyboard", touchcontrols::RectF(18, 0, 20, 2), "keyboard", KEY_SHOW_KBRD));
 
     tcMenuMain->addControl(new touchcontrols::Button("gamepad", touchcontrols::RectF(22, 0, 24, 2), "gamepad", KEY_SHOW_GAMEPAD));
     tcMenuMain->addControl(new touchcontrols::Button("gyro", touchcontrols::RectF(24, 0, 26, 2), "gyro", KEY_SHOW_GYRO));
@@ -83,8 +75,7 @@ void TouchInterface::createControls(std::string filesPath)
     // Left mouse button, for clicking the UWindow menu item under the cursor.
     //tcMenuMain->addControl(new touchcontrols::Button("left_mouse", touchcontrols::RectF(23, 4, 26, 7), "left_mouse", PORT_ACT_MOUSE_LEFT));
 
-    // Full-screen invisible trackpad: relative-drag moves the UWindow menu
-    // cursor, tap clicks. Added last so the buttons above take touch priority.
+    // Full-screen invisible trackpad; added last so the buttons take priority.
     touchcontrols::Mouse *menuMouse = new touchcontrols::Mouse("mouse", touchcontrols::RectF(0, 0, 26, 16), "");
     menuMouse->setHideGraphics(true);
     menuMouse->setEditable(false);
@@ -102,10 +93,8 @@ void TouchInterface::createControls(std::string filesPath)
     tcGameMain->addControl(new touchcontrols::Button("attack", touchcontrols::RectF(20, 7, 23, 10), "shoot", KEY_SHOOT, false, false, "Attack!"));
     tcGameMain->addControl(new touchcontrols::Button("attack2", touchcontrols::RectF(3, 5, 6, 8), "shoot", KEY_SHOOT, false, true, "Attack! (duplicate)"));
 
-    tcGameMain->addControl(new touchcontrols::Button("use", touchcontrols::RectF(23, 6, 26, 9), "use", PORT_ACT_USE, false, false, "Use/Open"));
     tcGameMain->addControl(new touchcontrols::Button("quick_save", touchcontrols::RectF(24, 0, 26, 2), "save", PORT_ACT_QUICKSAVE, false, false, "Quick save"));
     tcGameMain->addControl(new touchcontrols::Button("quick_load", touchcontrols::RectF(20, 0, 22, 2), "load", PORT_ACT_QUICKLOAD, false, false, "Quick load"));
-    tcGameMain->addControl(new touchcontrols::Button("datapad", touchcontrols::RectF(2, 0, 4, 2), "notebook", PORT_ACT_DATAPAD, false, false, "Activate translator"));
 
     tcGameMain->addControl(new touchcontrols::Button("keyboard", touchcontrols::RectF(8, 0, 10, 2), "keyboard", KEY_SHOW_KBRD, false, false, "Show keyboard"));
     tcGameMain->addControl(new touchcontrols::Button("show_mouse", touchcontrols::RectF(4, 0, 6, 2), "left_mouse", KEY_USE_MOUSE, false, true, "Use mouse"));
@@ -113,11 +102,9 @@ void TouchInterface::createControls(std::string filesPath)
     bool hideJump = false;
     tcGameMain->addControl(new touchcontrols::Button("jump", touchcontrols::RectF(24, 3, 26, 5), "jump", PORT_ACT_JUMP, false, hideJump, "Jump"));
 
-    bool hideInventory = false;
-    tcGameMain->addControl(new touchcontrols::Button("use_inventory", touchcontrols::RectF(0, 9, 2, 11), "inventory", KEY_SHOW_INV, false, hideInventory, "Show Inventory"));
     tcGameMain->addControl(new touchcontrols::Button("crouch", touchcontrols::RectF(24, 14, 26, 16), "crouch", PORT_ACT_DOWN, false, true, "Crouch"));
     tcGameMain->addControl(new touchcontrols::Button("crouch_toggle", touchcontrols::RectF(24, 14, 26, 16), "crouch", PORT_ACT_TOGGLE_CROUCH, false, true, "Crouch (toggle)"));
-    tcGameMain->addControl(new touchcontrols::Button("attack_alt", touchcontrols::RectF(21, 5, 23, 7), "shoot_alt", PORT_ACT_ALT_ATTACK, false, true, "Alt fire"));
+    tcGameMain->addControl(new touchcontrols::Button("attack_alt", touchcontrols::RectF(22, 4, 25, 7), "shoot_alt", PORT_ACT_ALT_ATTACK, false, false, "Alt fire"));
     tcGameMain->addControl(new touchcontrols::Button("show_custom", touchcontrols::RectF(0, 7, 2, 9), "custom_show", KEY_SHOW_CUSTOM, false, true, "Show custom"));
     tcGameMain->addControl(new touchcontrols::Button("show_weapons", touchcontrols::RectF(12, 14, 14, 16), "show_weapons", KEY_SHOW_WEAPONS, false, false, "Show numbers"));
     tcGameMain->addControl(new touchcontrols::Button("next_weapon", touchcontrols::RectF(0, 3, 3, 5), "next_weap", PORT_ACT_NEXT_WEP, false, false, "Next weapon"));

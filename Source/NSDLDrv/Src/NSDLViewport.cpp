@@ -13,12 +13,8 @@ IMPLEMENT_CLASS( UNSDLViewport );
 // Set in the constructor and cleared in Destroy(), both on the engine's thread.
 static UNSDLViewport* GAndroidViewport = NULL;
 
-// Is a menu / GUI currently showing? Matches exactly what the engine's own
-// mouse-capture logic checks (UGameEngine::Tick in UnGame.cpp): the UWindow GUI
-// menu sets bShowWindowsMouse (a UPlayer flag - the Windows-style cursor), while
-// bShowMenu is the classic Unreal-1 menu flag only the old Menu.uc sets. When
-// either is set the engine drops mouse capture, so injected motion flows through
-// the absolute Engine->MousePosition() path and moves the on-screen cursor.
+// Is a menu/GUI showing? UWindow sets bShowWindowsMouse; bShowMenu is the
+// classic Unreal-1 flag. Same check as the engine's capture logic (UnGame.cpp).
 extern "C" int UT99_IsMenuActive()
 {
 	if( !GAndroidViewport )
@@ -900,16 +896,9 @@ UBOOL UNSDLViewport::TickInput()
 	guard(UNSDLViewport::TickInput);
 
 #ifdef __ANDROID__
-	// Keep SDL mouse capture (relative mode) permanently ON. The UWindow menu
-	// cursor is driven by the *delta* path (rel motion -> MouseDelta +
-	// IK_MouseX/Y -> console moves the cursor), not the absolute MousePosition
-	// path - verified on-device: with capture off, drags update MousePosition
-	// and the cursor stays frozen; after a click captured the mouse, the same
-	// drags moved it. The engine's pause logic (UGameEngine::Tick) releases
-	// capture whenever the menu opens (IsFullscreen() is false under SDL
-	// Android), which is what forced a "tap once before the mouse moves" - on a
-	// touch screen there's no real cursor to give back, so just re-capture.
-	// Conditional, so the (rare) toggle only happens after the engine's release.
+	// Keep capture on: the UWindow cursor is driven by the delta path (needs
+	// relative mode), but the engine's pause logic releases capture on menu
+	// open - which froze the cursor until a tap. See CLAUDE.md "Menu mouse".
 	if( !SDL_GetRelativeMouseMode() )
 		SetMouseCapture( 1, 1, 0 );
 #endif
@@ -927,6 +916,21 @@ UBOOL UNSDLViewport::TickInput()
 				// signal to client and remember set a flag just in case
 				QuitRequested = true;
 				return true;
+#ifdef __ANDROID__
+			case SDL_WINDOWEVENT:
+				// Pause/resume all audio when the app is backgrounded/restored -
+				// openal-soft's mixer thread keeps running otherwise, so music
+				// would play on over a minimized app. These events arrive before
+				// SDL blocks the app thread on pause (SDL_androidevents.c).
+				if( Client && Client->Engine && Client->Engine->Audio )
+				{
+					if( Ev.window.event == SDL_WINDOWEVENT_MINIMIZED )
+						Client->Engine->Audio->Exec( TEXT("PauseAudio") );
+					else if( Ev.window.event == SDL_WINDOWEVENT_RESTORED )
+						Client->Engine->Audio->Exec( TEXT("ResumeAudio") );
+				}
+				break;
+#endif
 			case SDL_TEXTINPUT:
 				for( const char *p = Ev.text.text; *p && p < Ev.text.text + sizeof( Ev.text.text ); ++p )
 				{

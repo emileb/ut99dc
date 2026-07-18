@@ -3548,6 +3548,11 @@ void UObject::CacheDrivers( UBOOL ForceRefresh )
 		{
 			TCHAR Filename[256];
 			appSprintf( Filename, TEXT("%s%s"), appBaseDir(), *GSys->Paths(i) );
+#ifdef __ANDROID__
+			// SAF storage: rewrite "./../System/*.u" style paths to an absolute
+			// GamePath so the directory listing below can actually find anything.
+			appAndroidAbsolutePath( Filename, ARRAY_COUNT(Filename) );
+#endif
 			TCHAR* Tmp = appStrstr( Filename, TEXT("*.") );
 			if( Tmp )
 			{
