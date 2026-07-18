@@ -1491,12 +1491,60 @@ CORE_API UBOOL appAndroidConfigPath( const TCHAR* In, TCHAR* Out )
 	appSprintf( Out, TEXT("%s/System/%s"), GamePath, In );
 	return 1;
 }
+
+// User-generated content (saves, download cache) always lives under the app's
+// user_files folder, in a "ut99" subfolder - never in the game's own (possibly
+// SAF-backed/read-only) data folder. USER_FILES is set by
+// Clibs_OpenTouch/android_jni_inc.cpp before main() runs. Mirrors :Unreal's
+// AndroidUserFilesDir() (Core/Src/UnPlat.cpp).
+static const TCHAR* AndroidUserFilesDir()
+{
+	static TCHAR Dir[256] = TEXT("");
+	static UBOOL Checked = 0;
+	if( !Checked )
+	{
+		const char* UserFiles = getenv( "USER_FILES" );
+		if( UserFiles && UserFiles[0] )
+			appSprintf( Dir, TEXT("%s/ut99"), UserFiles );
+		debugf( NAME_Init, TEXT("Android: user_files dir = '%s'"), Dir );
+		Checked = 1;
+	}
+	return Dir;
+}
+
+// One-time fixup so every direct GSys->SavePath/CachePath use elsewhere
+// (UnGame.cpp save-game code, UnChan.cpp download cache) writes to
+// user_files/ut99 instead, with no changes needed at those call sites.
+// Unconditional - unlike the game's own (read-only) data, user-written files
+// always redirect here regardless of whether the game data itself is on
+// primary or secondary/SAF storage. Mirrors :Unreal's
+// AndroidFixupGSysPathsOnce() (Core/Src/UnPlat.cpp); UT99's SavePath/CachePath
+// are FString (v200's UE1 driver used a fixed char[96]), so this assigns
+// rather than snprintf's into a fixed buffer.
+static void AndroidFixupGSysPathsOnce()
+{
+	static UBOOL Done = 0;
+	if( Done )
+		return;
+	const TCHAR* UserFiles = AndroidUserFilesDir();
+	if( UserFiles[0] )
+	{
+		GSys->SavePath = FString::Printf( TEXT("%s/Save"), UserFiles );
+		GSys->CachePath = FString::Printf( TEXT("%s/Cache"), UserFiles );
+		debugf( NAME_Init, TEXT("Android: SavePath='%s' CachePath='%s'"), *GSys->SavePath, *GSys->CachePath );
+	}
+	Done = 1;
+}
 #endif
 
 UBOOL appFindPackageFile( const TCHAR* In, const FGuid* Guid, TCHAR* Out )
 {
 	guard(appFindPackageFile);
 	TCHAR Temp[256];
+
+#ifdef __ANDROID__
+	AndroidFixupGSysPathsOnce();
+#endif
 
 	// Don't return it if it's a library.
 	if( appStrlen(In)>appStrlen(DLLEXT) && appStricmp( In + appStrlen(In)-appStrlen(DLLEXT), DLLEXT )==0 )
