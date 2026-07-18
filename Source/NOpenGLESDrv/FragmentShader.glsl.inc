@@ -20,7 +20,7 @@ varying lowp vec4 vVtxColor;
 varying lowp vec4 vVtxFog;
 #endif
 
-uniform lowp float uBrightness;
+uniform highp float uBrightness;
 
 #ifdef SF_Texture0
 uniform sampler2D uTexture0;
@@ -93,7 +93,11 @@ void main()
 	Out.rgb = vVtxFog.rgb + Out.rgb * (1.0 - vVtxFog.a);
 #endif
 
-	Out.rgb *= 0.5 + uBrightness;
+	// True gamma ramp, same value desktop feeds SDL_SetWindowBrightness() (a pow
+	// ramp, not a linear scale) - a linear multiply can never lift near-black
+	// pixels, leaving shadowed areas pitch black. Same fix as UE1.
+	highp float Gamma = 0.5 + 1.5 * uBrightness;
+	Out.rgb = pow( max( Out.rgb, 0.0 ), vec3( 1.0 / Gamma ) );
 
 	gl_FragColor = Out;
 }

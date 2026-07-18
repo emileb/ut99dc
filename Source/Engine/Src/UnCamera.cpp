@@ -558,9 +558,28 @@ UBOOL UViewport::Exec( const TCHAR* Cmd, FOutputDevice& Ar )
 	else if( ParseCommand(&Cmd,TEXT("SHOT")) )
 	{
 		// Screenshot.
-		TCHAR File[32];
+		TCHAR File[256];
+#ifdef __ANDROID__
+		// A bare "ShotNNNN.bmp" writes straight into CWD (the game's own,
+		// possibly SAF/read-only System folder) - redirect to user_files/ut99,
+		// same as GSys->SavePath/CachePath (Core/Src/UnMisc.cpp).
+		TCHAR ShotDir[256] = TEXT("");
+		{
+			const char* UserFiles = getenv( "USER_FILES" );
+			if( UserFiles && UserFiles[0] )
+			{
+				appSprintf( ShotDir, TEXT("%s/ut99/Screenshots"), UserFiles );
+				GFileManager->MakeDirectory( ShotDir, 1 );
+			}
+		}
+#endif
 		for( INT i=0; i<256; i++ )
 		{
+#ifdef __ANDROID__
+			if( ShotDir[0] )
+				appSprintf( File, TEXT("%s") PATH_SEPARATOR TEXT("Shot%04i.bmp"), ShotDir, i );
+			else
+#endif
 			appSprintf( File, TEXT("Shot%04i.bmp"), i );
 			if( GFileManager->FileSize(File) < 0 )
 				break;

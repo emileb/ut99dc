@@ -264,8 +264,8 @@ void UNOpenGLESRenderDevice::Lock( FPlane FlashScale, FPlane FlashFog, FPlane Sc
 	glDepthFunc( GL_LEQUAL );
 
 	FLOAT TargetBrightness = CurrentBrightness;
-	if( Viewport && Viewport->Actor )
-		TargetBrightness = 0.5f; // TODO: Get brightness from somewhere
+	if( Viewport && Viewport->GetOuterUClient() )
+		TargetBrightness = Viewport->GetOuterUClient()->Brightness;
 	else if( CurrentBrightness < 0.f )
 		TargetBrightness = 0.5f;
 
