@@ -1347,7 +1347,11 @@ FSceneNode* URender::CreateMasterFrame( UViewport* Viewport, FVector Location, F
 	Frame->Draw[2]		= NULL;
 	Frame->Sprite		= NULL;
 	Frame->Span			= new(GSceneMem)FSpanBuffer;
-	Frame->Span->AllocIndexForScreen( Viewport->SizeX, Viewport->SizeY, &GSceneMem );
+	// Must match Frame->X/Y - all span/occlusion rasterization runs in the
+	// frame's (logical, on Android) space. With the real size here, a logical
+	// canvas taller than the real resolution indexed past the span index
+	// (memory corruption below 480-tall resolutions).
+	Frame->Span->AllocIndexForScreen( Frame->X, Frame->Y, &GSceneMem );
 
 	// Compute coords.
 	Frame->ComputeRenderCoords( Location, Rotation );

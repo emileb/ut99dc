@@ -251,12 +251,19 @@ void UNOpenGLESRenderDevice::Lock( FPlane FlashScale, FPlane FlashFog, FPlane Sc
 	guard(UNOpenGLESRenderDevice::Lock);
 
 #ifdef __ANDROID__
-		// Set permanent state.
+		// The touch-controls overlay / framebuffer scaler changes GL state at swap
+		// time behind our caches - restore state and force a full resync: drop the
+		// cached shader so SetShader() below rebinds the program and every attrib
+		// array/pointer, and drop texture bindings so the next SetTexture rebinds.
 		glEnable( GL_DEPTH_TEST );
 		glDepthMask( GL_TRUE );
 		glBlendFunc( GL_ONE, GL_ZERO );
 		glEnable( GL_BLEND );
-		glEnableVertexAttribArray( 0 );
+		ShaderInfo = nullptr;
+		ResetTexture( 0 );
+		ResetTexture( 1 );
+		ResetTexture( 2 );
+		ResetTexture( 3 );
 #endif
 
 	glClearColor( ScreenClear.X, ScreenClear.Y, ScreenClear.Z, ScreenClear.W );
