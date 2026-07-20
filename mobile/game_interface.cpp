@@ -162,68 +162,74 @@ void PortableAction(int state, int action)
             sendKey(state, (SDL_Scancode)(SDL_SCANCODE_KP_1 + action - PORT_ACT_CUSTOM_0));
         else
             sendKey(state, (SDL_Scancode)(SDL_SCANCODE_A + action - PORT_ACT_CUSTOM_10));
-        return;
     }
-
-    switch (action)
+    else if (PortableGetScreenMode() == TS_MENU)
     {
-        // Menu/console reads raw EInputKeys directly - real SDL keys are correct.
-        case PORT_ACT_MENU_UP:      sendKey(state, SDL_SCANCODE_UP);      return;
-        case PORT_ACT_MENU_DOWN:    sendKey(state, SDL_SCANCODE_DOWN);    return;
-        case PORT_ACT_MENU_LEFT:    sendKey(state, SDL_SCANCODE_LEFT);    return;
-        case PORT_ACT_MENU_RIGHT:   sendKey(state, SDL_SCANCODE_RIGHT);   return;
-        case PORT_ACT_MENU_SELECT:  sendKey(state, SDL_SCANCODE_RETURN);  return;
-        case PORT_ACT_MENU_CONFIRM: sendKey(state, SDL_SCANCODE_Y);       return;
-        case PORT_ACT_MENU_BACK:
-        case PORT_ACT_MENU_ABORT:
-        case PORT_ACT_MENU_SHOW:    sendKey(state, SDL_SCANCODE_ESCAPE);  return;
-        case PORT_ACT_CONSOLE:      sendKey(state, SDL_SCANCODE_GRAVE);   return; // hardcoded IK_Tilde in Console
+        // Menu nav only fires while the menu is open (same split Delta Touch's
+        // gzdoom_game_interface.cpp uses). UWindow reads raw EInputKeys
+        // directly, so real SDL keys are correct here.
+        switch (action)
+        {
+            case PORT_ACT_MENU_UP:      sendKey(state, SDL_SCANCODE_UP);     return;
+            case PORT_ACT_MENU_DOWN:    sendKey(state, SDL_SCANCODE_DOWN);   return;
+            case PORT_ACT_MENU_LEFT:    sendKey(state, SDL_SCANCODE_LEFT);   return;
+            case PORT_ACT_MENU_RIGHT:   sendKey(state, SDL_SCANCODE_RIGHT);  return;
+            case PORT_ACT_MENU_SELECT:  sendKey(state, SDL_SCANCODE_RETURN); return;
+            case PORT_ACT_MENU_BACK:    sendKey(state, SDL_SCANCODE_ESCAPE); return;
+        }
+    }
+    else
+    {
+        switch (action)
+        {
+            case PORT_ACT_CONSOLE:      sendKey(state, SDL_SCANCODE_GRAVE);   return; // hardcoded IK_Tilde in Console
 
-        case PORT_ACT_MOUSE_LEFT:   MouseButton(state, BUTTON_PRIMARY);   return;
-        case PORT_ACT_MOUSE_RIGHT:  MouseButton(state, BUTTON_SECONDARY); return;
+            case PORT_ACT_MOUSE_LEFT:   MouseButton(state, BUTTON_PRIMARY);   return;
+            case PORT_ACT_MOUSE_RIGHT:  MouseButton(state, BUTTON_SECONDARY); return;
 
-        // Digital movement/turn: same axes the analog sticks use.
-        case PORT_ACT_FWD:         s_moveAxis = state ? 1.0f : 0.0f;    return;
-        case PORT_ACT_BACK:        s_moveAxis = state ? -1.0f : 0.0f;   return;
-        case PORT_ACT_LEFT:        s_turnAxis = state ? -1.0f : 0.0f;   return; // turn left
-        case PORT_ACT_RIGHT:       s_turnAxis = state ? 1.0f : 0.0f;    return; // turn right
-        case PORT_ACT_MOVE_LEFT:   s_strafeAxis = state ? -1.0f : 0.0f; return;
-        case PORT_ACT_MOVE_RIGHT:  s_strafeAxis = state ? 1.0f : 0.0f;  return;
+            // Digital movement/turn: same axes the analog sticks use.
+            case PORT_ACT_FWD:         s_moveAxis = state ? 1.0f : 0.0f;    return;
+            case PORT_ACT_BACK:        s_moveAxis = state ? -1.0f : 0.0f;   return;
+            case PORT_ACT_LEFT:        s_turnAxis = state ? -1.0f : 0.0f;   return; // turn left
+            case PORT_ACT_RIGHT:       s_turnAxis = state ? 1.0f : 0.0f;    return; // turn right
+            case PORT_ACT_MOVE_LEFT:   s_strafeAxis = state ? -1.0f : 0.0f; return;
+            case PORT_ACT_MOVE_RIGHT:  s_strafeAxis = state ? 1.0f : 0.0f;  return;
 
-        // Held aliases.
-        case PORT_ACT_STRAFE:      s_wantStrafeMod = state != 0;   return; // hold: Left/Right turn -> strafe
-        case PORT_ACT_ATTACK:      s_wantFire = state != 0;        return;
-        case PORT_ACT_ALT_ATTACK:
-        case PORT_ACT_ALT_FIRE:    s_wantAltFire = state != 0;     return;
-        case PORT_ACT_DOWN:
-        case PORT_ACT_CROUCH:      s_wantDuck = state != 0;        return;
-        case PORT_ACT_SPEED:
-        case PORT_ACT_SPRINT:
-        case PORT_ACT_SMART_TOGGLE_RUN:
-        case PORT_ACT_ALWAYS_RUN:  s_wantWalk = state != 0;        return; // UT runs by default; this walks instead
+            // Held aliases.
+            case PORT_ACT_STRAFE:      s_wantStrafeMod = state != 0;   return; // hold: Left/Right turn -> strafe
+            case PORT_ACT_ATTACK:      s_wantFire = state != 0;        return;
+            case PORT_ACT_ALT_ATTACK:
+            case PORT_ACT_ALT_FIRE:    s_wantAltFire = state != 0;     return;
+            case PORT_ACT_DOWN:
+            case PORT_ACT_CROUCH:      s_wantDuck = state != 0;        return;
+            case PORT_ACT_SPEED:
+            case PORT_ACT_SPRINT:
+            case PORT_ACT_SMART_TOGGLE_RUN:
+            case PORT_ACT_ALWAYS_RUN:  s_wantWalk = state != 0;        return; // UT runs by default; this walks instead
 
-        // One-shot commands, fire on press only.
-        case PORT_ACT_JUMP:
-        case PORT_ACT_UP:          if (state) postCommand("Jump");            return;
-        case PORT_ACT_NEXT_WEP:    if (state) postCommand("NextWeapon");      return;
-        case PORT_ACT_PREV_WEP:    if (state) postCommand("PrevWeapon");      return;
-        case PORT_ACT_WEAP0:       if (state) postCommand("SwitchWeapon 10"); return;
-        case PORT_ACT_WEAP1:       if (state) postCommand("SwitchWeapon 1");  return;
-        case PORT_ACT_WEAP2:       if (state) postCommand("SwitchWeapon 2");  return;
-        case PORT_ACT_WEAP3:       if (state) postCommand("SwitchWeapon 3");  return;
-        case PORT_ACT_WEAP4:       if (state) postCommand("SwitchWeapon 4");  return;
-        case PORT_ACT_WEAP5:       if (state) postCommand("SwitchWeapon 5");  return;
-        case PORT_ACT_WEAP6:       if (state) postCommand("SwitchWeapon 6");  return;
-        case PORT_ACT_WEAP7:       if (state) postCommand("SwitchWeapon 7");  return;
-        case PORT_ACT_WEAP8:       if (state) postCommand("SwitchWeapon 8");  return;
-        case PORT_ACT_WEAP9:       if (state) postCommand("SwitchWeapon 9");  return;
-        case PORT_ACT_INVUSE:      if (state) postCommand("ActivateItem");    return;
-        case PORT_ACT_INVNEXT:     if (state) postCommand("NextItem");        return;
-        case PORT_ACT_INVPREV:     if (state) postCommand("PrevItem");        return;
-        case PORT_ACT_QUICKSAVE:   if (state) postCommand("QuickSave");       return;
-        case PORT_ACT_QUICKLOAD:   if (state) postCommand("QuickLoad");       return;
-        case PORT_ACT_SHOW_KBRD:   if (state) postCommand("Talk");            return; // chat text entry
-        case PORT_ACT_DATAPAD:     if (state) postCommand("ActivateTranslator"); return;
+            // One-shot commands, fire on press only.
+            case PORT_ACT_JUMP:
+            case PORT_ACT_UP:          if (state) postCommand("Jump");            return;
+            case PORT_ACT_NEXT_WEP:    if (state) postCommand("NextWeapon");      return;
+            case PORT_ACT_PREV_WEP:    if (state) postCommand("PrevWeapon");      return;
+            case PORT_ACT_WEAP0:       if (state) postCommand("SwitchWeapon 10"); return;
+            case PORT_ACT_WEAP1:       if (state) postCommand("SwitchWeapon 1");  return;
+            case PORT_ACT_WEAP2:       if (state) postCommand("SwitchWeapon 2");  return;
+            case PORT_ACT_WEAP3:       if (state) postCommand("SwitchWeapon 3");  return;
+            case PORT_ACT_WEAP4:       if (state) postCommand("SwitchWeapon 4");  return;
+            case PORT_ACT_WEAP5:       if (state) postCommand("SwitchWeapon 5");  return;
+            case PORT_ACT_WEAP6:       if (state) postCommand("SwitchWeapon 6");  return;
+            case PORT_ACT_WEAP7:       if (state) postCommand("SwitchWeapon 7");  return;
+            case PORT_ACT_WEAP8:       if (state) postCommand("SwitchWeapon 8");  return;
+            case PORT_ACT_WEAP9:       if (state) postCommand("SwitchWeapon 9");  return;
+            case PORT_ACT_INVUSE:      if (state) postCommand("ActivateItem");    return;
+            case PORT_ACT_INVNEXT:     if (state) postCommand("NextItem");        return;
+            case PORT_ACT_INVPREV:     if (state) postCommand("PrevItem");        return;
+            case PORT_ACT_QUICKSAVE:   if (state) postCommand("QuickSave");       return;
+            case PORT_ACT_QUICKLOAD:   if (state) postCommand("QuickLoad");       return;
+            case PORT_ACT_SHOW_KBRD:   if (state) postCommand("Talk");            return; // chat text entry
+            case PORT_ACT_DATAPAD:     if (state) postCommand("ActivateTranslator"); return;
+        }
     }
 }
 
@@ -371,7 +377,7 @@ extern "C" void UT99_TickPortableActions()
     // _joy is re-sent every tick, so scale by elapsed time (60Hz reference).
     float joyFrameScale = deltaSeconds * 60.0f;
     float yaw = s_lookYawMouse + s_lookYawJoy * joyFrameScale;
-    float pitch = s_lookPitchMouse + s_lookPitchJoy * joyFrameScale;
+    float pitch = s_lookPitchMouse + -s_lookPitchJoy * joyFrameScale;
     if (yaw != 0.0f || pitch != 0.0f)
         MouseMove(yaw, pitch);
     s_lookYawMouse = 0.0f;
