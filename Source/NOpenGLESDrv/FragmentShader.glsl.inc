@@ -93,11 +93,22 @@ void main()
 	Out.rgb = vVtxFog.rgb + Out.rgb * (1.0 - vVtxFog.a);
 #endif
 
+#ifndef SF_Modulated
 	// True gamma ramp, same value desktop feeds SDL_SetWindowBrightness() (a pow
 	// ramp, not a linear scale) - a linear multiply can never lift near-black
 	// pixels, leaving shadowed areas pitch black. Same fix as UE1.
+	//
+	// Skipped for PF_Modulated draws (decals, shadow blobs): those rely on
+	// glBlendFunc(GL_DST_COLOR, GL_SRC_COLOR) - a plain 2x multiply against
+	// whatever is already in the framebuffer (itself already gamma-corrected
+	// from its own draw). Their "invisible" neutral-gray fill (0.5) only
+	// cancels out (2*0.5*Dst == Dst) if it reaches the blend stage
+	// unmodified; re-applying this curve to it independently breaks that
+	// cancellation (pow(0.5, 1/Gamma) != 0.5 for Gamma != 1), which showed up
+	// as a visible light-grey square around every decal.
 	highp float Gamma = 0.5 + 1.5 * uBrightness;
 	Out.rgb = pow( max( Out.rgb, 0.0 ), vec3( 1.0 / Gamma ) );
+#endif
 
 	gl_FragColor = Out;
 }

@@ -33,8 +33,9 @@ enum EShaderFlags : DWORD
 	SF_Fogmap    = 1 << 7,
 	SF_Detail    = 1 << 8,
 	SF_VtxFog    = 1 << 9,
-	SF_Max       = SF_VtxFog,
-	SF_Count     = 10,
+	SF_Modulated = 1 << 10,
+	SF_Max       = SF_Modulated,
+	SF_Count     = 11,
 };
 
 enum EShaderAttribs
@@ -174,10 +175,10 @@ class DLL_EXPORT UNOpenGLESRenderDevice : public URenderDevice
 	void SetShader( DWORD ShaderFlags );
 	void SetSceneNode( FSceneNode* Frame );
 	void SetBlend( DWORD PolyFlags, UBOOL InverseOrder = false );
-	void SetTexture( INT TMU, FTextureInfo& Info, DWORD PolyFlags, FLOAT PanBias );
+	void SetTexture( INT TMU, FTextureInfo& Info, DWORD PolyFlags, FLOAT PanBias, UBOOL Clamp = false );
 	void ResetTexture( INT TMU );
 	void UploadTexture( FTextureInfo& Info, UBOOL Masked, UBOOL NewTexture );
-	void UpdateTextureFilter( const FTextureInfo& Info, DWORD PolyFlags );
+	void UpdateTextureFilter( const FTextureInfo& Info, DWORD PolyFlags, UBOOL Clamp = false );
 
 private:
 	// Fixed function mode emulation.

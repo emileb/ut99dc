@@ -48,6 +48,12 @@ static constexpr DWORD AttribSizes[AT_Count] = {
 // actually unused higher bits for this purpose, thereby breaking 64-bit compatibility for now
 #define MASKED_TEXTURE_TAG (1ULL << 60ULL)
 
+// Same trick as MASKED_TEXTURE_TAG: a texture used once as a non-tiling
+// decal/sprite (clamped) and once as a tiling surface (repeated) needs two
+// distinct cache entries, since the wrap mode is baked into the GL texture
+// object's sampler state, not passed per-draw.
+#define CLAMPED_TEXTURE_TAG (1ULL << 59ULL)
+
 // FColor is adjusted for endianness
 #define ALPHA_MASK 0xff000000
 
@@ -382,10 +388,17 @@ void UNOpenGLESRenderDevice::DrawGouraudPolygon( FSceneNode* Frame, FTextureInfo
 		CurrentShaderFlags |= SF_VtxColor;
 	if( IsFog )
 		CurrentShaderFlags |= SF_VtxFog;
+	if( IsModulated )
+		CurrentShaderFlags |= SF_Modulated;
 
 	SetSceneNode( Frame );
 	SetBlend( PolyFlags );
-	SetTexture( 0, Texture, ( PolyFlags & PF_Masked ), 0 );
+	// Gouraud polys are decals and skinned mesh triangles - both map a
+	// texture 1:1 onto their surface and never tile past UV=[0,1], unlike
+	// DrawComplexSurface's BSP wall/floor textures. Clamp=true (see
+	// UpdateTextureFilter) avoids the wrap/mip bleed that shows up as a
+	// light grey border around decals.
+	SetTexture( 0, Texture, ( PolyFlags & PF_Masked ), 0, true );
 	SetShader( CurrentShaderFlags );
 
 	BeginPoly();
@@ -402,7 +415,7 @@ void UNOpenGLESRenderDevice::DrawGouraudPolygon( FSceneNode* Frame, FTextureInfo
 	}
 	EndPoly();
 
-	CurrentShaderFlags &= ~( SF_VtxColor|SF_VtxFog );
+	CurrentShaderFlags &= ~( SF_VtxColor|SF_VtxFog|SF_Modulated );
 
 	unguard;
 }
@@ -410,6 +423,22 @@ void UNOpenGLESRenderDevice::DrawGouraudPolygon( FSceneNode* Frame, FTextureInfo
 void UNOpenGLESRenderDevice::DrawTile( FSceneNode* Frame, FTextureInfo& Texture, FLOAT X, FLOAT Y, FLOAT XL, FLOAT YL, FLOAT U, FLOAT V, FLOAT UL, FLOAT VL, FSpanBuffer* Span, FLOAT Z, FPlane Light, FPlane Fog, DWORD PolyFlags )
 {
 	guard(UNOpenGLESRenderDevice::DrawTile);
+
+#ifdef __ANDROID__
+	// WORKAROUND: the compiled HUD script (Botpack.u - not in this source
+	// tree, so Canvas.Style can't be patched at the source) draws the
+	// weapon-selector row along the bottom of the screen without
+	// PF_Translucent, making the whole bar opaque instead of the intended
+	// translucent backdrop (only the small selected-weapon highlight box is
+	// meant to be opaque). Force translucency onto tiles matching that row's
+	// known logical-canvas footprint (480-tall canvas, see
+	// URender::CreateMasterFrame). Fragile - keyed to this HUD skin's layout.
+	if( !(PolyFlags & (PF_Translucent|PF_Modulated)) &&
+		Y > 400.f && YL > 30.f && YL < 45.f && XL > 60.f && XL < 90.f )
+	{
+		PolyFlags |= PF_Translucent;
+	}
+#endif
 
 	FPlane VtxColor;
 	if( !( PolyFlags & PF_Modulated ) )
@@ -428,10 +457,15 @@ void UNOpenGLESRenderDevice::DrawTile( FSceneNode* Frame, FTextureInfo& Texture,
 	}
 
 	CurrentShaderFlags |= SF_VtxColor;
+	if( PolyFlags & PF_Modulated )
+		CurrentShaderFlags |= SF_Modulated;
 
 	SetSceneNode( Frame );
 	SetBlend( PolyFlags );
-	SetTexture( 0, Texture, ( PolyFlags & PF_Masked ), 0.f );
+	// Same reasoning as DrawGouraudPolygon: HUD tiles and camera-facing actor
+	// sprites (e.g. smoke puffs) are single stamps, never tiled - clamp to
+	// avoid wrap/mip edge bleed (see UpdateTextureFilter).
+	SetTexture( 0, Texture, ( PolyFlags & PF_Masked ), 0.f, true );
 	SetShader( CurrentShaderFlags );
 
 	BeginPoly();
@@ -453,7 +487,7 @@ void UNOpenGLESRenderDevice::DrawTile( FSceneNode* Frame, FTextureInfo& Texture,
 		PolyVertex();
 	EndPoly();
 
-	CurrentShaderFlags &= ~SF_VtxColor;
+	CurrentShaderFlags &= ~( SF_VtxColor|SF_Modulated );
 
 	unguard;
 }
@@ -628,7 +662,7 @@ UNOpenGLESRenderDevice::FCachedShader* UNOpenGLESRenderDevice::CreateShader( DWO
 	static const char* FlagNames[SF_Count] = {
 		"SF_Texture0", "SF_Texture1", "SF_Texture2", "SF_Texture3",
 		"SF_VtxColor", "SF_AlphaTest", "SF_Lightmap", "SF_Fogmap",
-		"SF_Detail", "SF_VtxFog"
+		"SF_Detail", "SF_VtxFog", "SF_Modulated"
 	};
 
 	static const char* UniformNames[UF_Count] = {
@@ -898,27 +932,46 @@ void UNOpenGLESRenderDevice::SetBlend( DWORD PolyFlags, UBOOL InverseOrder )
 	unguard;
 }
 
-void UNOpenGLESRenderDevice::UpdateTextureFilter( const FTextureInfo& Info, DWORD PolyFlags )
+void UNOpenGLESRenderDevice::UpdateTextureFilter( const FTextureInfo& Info, DWORD PolyFlags, UBOOL Clamp )
 {
 	guard(UNOpenGLESRenderDevice::UpdateTextureFilter);
+
+	// Non-tiling draws (decals, sprites/tiles - see the Clamp callers) skip
+	// mipmapping even when the texture has mips: mip generation for a
+	// palettized texture box-filters assuming the edges wrap (correct for a
+	// tiling surface texture), so a decal/sprite sampling near its UV=0/1
+	// edge picks up contamination from the texture's opposite edge baked
+	// into the higher mip levels - visible as a light grey square border
+	// around blood/scorch decals and smoke-puff sprites. Forcing mip 0 only
+	// (GL_LINEAR/GL_NEAREST, no _MIPMAP_ variant) sidesteps this regardless
+	// of whether the bleed comes from mip generation or from GL_REPEAT
+	// wrap sampling at render time (also fixed below via GL_CLAMP_TO_EDGE).
+	UBOOL UseMips = ( Info.NumMips > 1 ) && !Clamp;
 
 	// Set mip filtering if there are mips.
 	if( ( PolyFlags & PF_NoSmooth ) || ( NoFiltering && Info.Palette ) ) // TODO: This is set per poly, not per texture.
 	{
-		glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, ( Info.NumMips > 1 ) ? GL_NEAREST_MIPMAP_NEAREST : GL_NEAREST );
+		glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, UseMips ? GL_NEAREST_MIPMAP_NEAREST : GL_NEAREST );
 		glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST );
 	}
 	else
 	{
-		glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, ( Info.NumMips > 1 ) ? GL_LINEAR_MIPMAP_LINEAR : GL_LINEAR );
+		glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, UseMips ? GL_LINEAR_MIPMAP_LINEAR : GL_LINEAR );
 		glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR );
 	}
 
-	// This is a light/fog map.
-	if( !Info.Palette )
+	// Light/fog maps and non-tiling decal/sprite draws never repeat past
+	// their UV=[0,1] extent, so clamp to avoid sampling/mip bleed wrapping
+	// in from the opposite texture edge.
+	if( !Info.Palette || Clamp )
 	{
 		glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE );
 		glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE );
+	}
+	else
+	{
+		glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT );
+		glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT );
 	}
 
 	unguard;
@@ -941,7 +994,7 @@ void UNOpenGLESRenderDevice::ResetTexture( INT TMU )
 	unguard;
 }
 
-void UNOpenGLESRenderDevice::SetTexture( INT TMU, FTextureInfo& Info, DWORD PolyFlags, FLOAT PanBias )
+void UNOpenGLESRenderDevice::SetTexture( INT TMU, FTextureInfo& Info, DWORD PolyFlags, FLOAT PanBias, UBOOL Clamp )
 {
 	guard(UNOpenGLESRenderDevice::SetTexture);
 
@@ -960,6 +1013,8 @@ void UNOpenGLESRenderDevice::SetTexture( INT TMU, FTextureInfo& Info, DWORD Poly
 	QWORD NewCacheID = Info.CacheID;
 	if( ( PolyFlags & PF_Masked ) && Info.Palette )
 		NewCacheID |= MASKED_TEXTURE_TAG;
+	if( Clamp )
+		NewCacheID |= CLAMPED_TEXTURE_TAG;
 	UBOOL RealtimeChanged = Info.bRealtimeChanged;
 	if( NewCacheID == Tex.CurrentCacheID && !RealtimeChanged )
 		return;
@@ -989,7 +1044,7 @@ void UNOpenGLESRenderDevice::SetTexture( INT TMU, FTextureInfo& Info, DWORD Poly
 		Info.bRealtimeChanged = 0;
 		UploadTexture( Info, ( PolyFlags & PF_Masked ), !OldBind );
 		// TODO: This depends on PolyFlags, not Info.
-		UpdateTextureFilter( Info, PolyFlags );
+		UpdateTextureFilter( Info, PolyFlags, Clamp );
 	}
 
 	unguard;
