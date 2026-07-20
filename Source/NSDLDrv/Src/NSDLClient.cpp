@@ -388,6 +388,25 @@ void UNSDLClient::TryRenderDevice( UViewport* Viewport, const char* ClassName, U
 	if( RenderClass )
 	{
 		Viewport->RenDev = ConstructObject<URenderDevice>( RenderClass );
+
+#ifdef __ANDROID__
+		// Render-quality toggles normally only reachable by hand-editing the ini
+		// (no UWindow checkbox for them on Android's mouse-only menu) - let
+		// EngineOptionsUT99 flip them via command line instead, same pattern as
+		// -ResX=/-ResY= overriding the ini above.
+		UBOOL OptOnOff;
+		if( ParseUBOOL( appCmdLine(), TEXT("VolumetricLighting="), OptOnOff ) )
+			Viewport->RenDev->VolumetricLighting = OptOnOff;
+		if( ParseUBOOL( appCmdLine(), TEXT("ShinySurfaces="), OptOnOff ) )
+			Viewport->RenDev->ShinySurfaces = OptOnOff;
+		if( ParseUBOOL( appCmdLine(), TEXT("Coronas="), OptOnOff ) )
+			Viewport->RenDev->Coronas = OptOnOff;
+		if( ParseUBOOL( appCmdLine(), TEXT("HighDetailActors="), OptOnOff ) )
+			Viewport->RenDev->HighDetailActors = OptOnOff;
+		if( ParseUBOOL( appCmdLine(), TEXT("DetailTextures="), OptOnOff ) )
+			Viewport->RenDev->DetailTextures = OptOnOff;
+#endif
+
 		if( Engine->Audio && !GIsEditor )
 			Engine->Audio->SetViewport( NULL );
 		if( Viewport->RenDev->Init( Viewport, Viewport->SizeX, Viewport->SizeY, Viewport->ColorBytes, Fullscreen ) )
