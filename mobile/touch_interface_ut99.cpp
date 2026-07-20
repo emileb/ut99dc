@@ -29,7 +29,7 @@ void TouchInterface::mouseMove(int action, float x, float y, float mouse_x, floa
     {
         // Scale to the fixed 480-tall logical UI canvas the cursor lives in,
         // not the real resolution (which made it race at high res).
-        const float UILogicalHeight = 480.0f;
+        const float UILogicalHeight = 480.0f * 2;
         float logicalWidth = UILogicalHeight * (float)mobile_screen_width / (float)mobile_screen_height;
         MouseMove(mouse_x * logicalWidth, mouse_y * UILogicalHeight);
     }
