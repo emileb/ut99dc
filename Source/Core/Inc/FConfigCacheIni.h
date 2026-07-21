@@ -13,6 +13,29 @@
 #ifdef __ANDROID__
 // UnMisc.cpp: rewrite a bare config/.int filename to <GamePath>/System/ for SAF.
 CORE_API UBOOL appAndroidConfigPath( const TCHAR* In, TCHAR* Out );
+
+// -FOV=<deg> (EngineOptionsUT99 slider) overrides the player's globalconfig
+// DefaultFOV/DesiredFOV at config-read time, as if the ini held that value - the
+// file itself is never written (SetString swallows these keys while active).
+// Parsed once from the command line; returns 0 when inactive (absent, or <=90,
+// which keeps the real ini value and the engine's aspect-corrected default).
+inline FLOAT AndroidFOVOverride()
+{
+	static FLOAT FOV = -1.f;
+	if( FOV < 0.f )
+	{
+		FOV = 0.f;
+		if( Parse( appCmdLine(), TEXT("FOV="), FOV ) && FOV > 90.f )
+			FOV = Clamp( FOV, 90.f, 120.f );
+		else
+			FOV = 0.f;
+	}
+	return FOV;
+}
+inline UBOOL IsAndroidFOVKey( const TCHAR* Key )
+{
+	return appStricmp( Key, TEXT("DefaultFOV") )==0 || appStricmp( Key, TEXT("DesiredFOV") )==0;
+}
 #endif
 
 // One section in a config file.
@@ -171,6 +194,15 @@ public:
 	{
 		guard(FConfigCacheIni::GetString);
 		*Value = 0;
+#ifdef __ANDROID__
+		// Report the -FOV= override for DefaultFOV/DesiredFOV as if it were in the ini.
+		FLOAT FOV = AndroidFOVOverride();
+		if( FOV > 0.f && IsAndroidFOVKey( Key ) )
+		{
+			appSprintf( Value, TEXT("%f"), FOV );
+			return 1;
+		}
+#endif
 		FConfigFile* File = Find( Filename, 0 );
 		if( !File )
 			return 0;
@@ -218,6 +250,12 @@ public:
 	void SetString( const TCHAR* Section, const TCHAR* Key, const TCHAR* Value, const TCHAR* Filename )
 	{
 		guard(FConfigCacheIni::SetString);
+#ifdef __ANDROID__
+		// While the FOV override is active, swallow writes to these keys so a config
+		// flush can't persist our injected value to the ini file.
+		if( AndroidFOVOverride() > 0.f && IsAndroidFOVKey( Key ) )
+			return;
+#endif
 		FConfigFile* File = Find( Filename, 1 );
 		FConfigSection* Sec  = File->Find( Section );
 		if( !Sec )
