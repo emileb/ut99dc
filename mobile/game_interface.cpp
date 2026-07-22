@@ -97,13 +97,26 @@ int PortableKeyEvent(int state, int code, int unitcode)
     return 0;
 }
 
-// Reserved EInputKey slots no real device can generate, each bound to a signed
-// raw Axis command and driven per-tick like a real analog joystick axis.
+// Reserved EInputKey slots no real device can generate. Two families:
+//   *_AXIS keys are the analog path (virtual sticks / turn buttons) - bound to
+//   the positive-Speed half of an Axis command and fed a signed magnitude via
+//   IST_Axis each tick, so one key covers both directions and a soft push moves
+//   proportionally slower, like a real analog joystick axis.
+//   *_KEY keys are the digital path (D-pad forward/back/strafe buttons) - each
+//   bound to a fixed-sign Axis command and pressed/released via Process()
+//   (IST_Press/IST_Release) like a real key, letting UE1's own ReadInput() pump
+//   apply IST_Hold at full Speed every tick. Same path a real WASD key takes,
+//   one level below synthesizing a WASD scancode. Direction is baked into the
+//   binding, so the digital family needs one key per direction.
 enum
 {
-    RK_MOVE_AXIS   = IK_Unknown88, // +forward / -back
-    RK_TURN_AXIS   = IK_Unknown89, // +right   / -left
-    RK_STRAFE_AXIS = IK_Unknown8A, // +right   / -left
+    RK_MOVE_AXIS        = IK_Unknown88, // analog: +forward / -back
+    RK_TURN_AXIS        = IK_Unknown89, // analog: +right   / -left
+    RK_STRAFE_AXIS      = IK_Unknown8A, // analog: +right   / -left
+    RK_FWD_KEY          = IK_Unknown8B, // digital: forward
+    RK_BACK_KEY         = IK_Unknown8C, // digital: back
+    RK_STRAFE_LEFT_KEY  = IK_Unknown8D, // digital: strafe left
+    RK_STRAFE_RIGHT_KEY = IK_Unknown8E, // digital: strafe right
 };
 
 static bool s_reservedKeysBound = false;
@@ -113,10 +126,16 @@ static void ensureReservedKeysBound(UViewport *vp)
     if (s_reservedKeysBound)
         return;
 
-    // Same raw commands the ini's MoveForward/TurnRight/StrafeRight resolve to.
-    vp->Input->Bindings[RK_MOVE_AXIS]   = TEXT("Axis aBaseY Speed=+300.0");
-    vp->Input->Bindings[RK_TURN_AXIS]   = TEXT("Axis aBaseX Speed=+150.0");
-    vp->Input->Bindings[RK_STRAFE_AXIS] = TEXT("Axis aStrafe Speed=+300.0");
+    // Same raw commands the ini's MoveForward/TurnRight/StrafeRight resolve to
+    // (analog keys take the positive half - our own sign supplies the direction;
+    // digital keys bake the sign into the binding).
+    vp->Input->Bindings[RK_MOVE_AXIS]        = TEXT("Axis aBaseY Speed=+300.0");
+    vp->Input->Bindings[RK_TURN_AXIS]        = TEXT("Axis aBaseX Speed=+150.0");
+    vp->Input->Bindings[RK_STRAFE_AXIS]      = TEXT("Axis aStrafe Speed=+300.0");
+    vp->Input->Bindings[RK_FWD_KEY]          = TEXT("Axis aBaseY Speed=+300.0");
+    vp->Input->Bindings[RK_BACK_KEY]         = TEXT("Axis aBaseY Speed=-300.0");
+    vp->Input->Bindings[RK_STRAFE_LEFT_KEY]  = TEXT("Axis aStrafe Speed=-300.0");
+    vp->Input->Bindings[RK_STRAFE_RIGHT_KEY] = TEXT("Axis aStrafe Speed=+300.0");
 
     s_reservedKeysBound = true;
 }
@@ -124,8 +143,14 @@ static void ensureReservedKeysBound(UViewport *vp)
 // Cross-thread state: written on the touch thread, read only by
 // UT99_TickPortableActions() (engine thread).
 
-// Movement/turn, -1..+1 (digital sets a fixed +-1, analog the stick fraction).
+// Analog movement/turn, -1..+1: set by the virtual sticks (and, for turn, the
+// digital turn buttons), fed through the IST_Axis path each tick.
 static volatile float s_moveAxis = 0.0f, s_turnAxis = 0.0f, s_strafeAxis = 0.0f;
+
+// Digital forward/back/strafe buttons: held state, driven through the real-key
+// press/release + IST_Hold path (RK_*_KEY above) at full keyboard speed.
+static volatile bool s_wantFwd = false, s_wantBack = false;
+static volatile bool s_wantStrafeLeft = false, s_wantStrafeRight = false;
 
 // Held real buttons, diffed against the last-applied state each tick.
 static volatile bool s_wantFire = false, s_wantAltFire = false, s_wantDuck = false;
@@ -187,13 +212,17 @@ void PortableAction(int state, int action)
             case PORT_ACT_MOUSE_LEFT:   MouseButton(state, BUTTON_PRIMARY);   return;
             case PORT_ACT_MOUSE_RIGHT:  MouseButton(state, BUTTON_SECONDARY); return;
 
-            // Digital movement/turn: same axes the analog sticks use.
-            case PORT_ACT_FWD:         s_moveAxis = state ? 1.0f : 0.0f;    return;
-            case PORT_ACT_BACK:        s_moveAxis = state ? -1.0f : 0.0f;   return;
+            // Digital forward/back/strafe: real-key press/release (RK_*_KEY),
+            // driven at full keyboard speed by UE1's ReadInput() IST_Hold pump -
+            // the digital equivalent of a bound WASD key, not the analog axis.
+            case PORT_ACT_FWD:         s_wantFwd = state != 0;         return;
+            case PORT_ACT_BACK:        s_wantBack = state != 0;        return;
+            case PORT_ACT_MOVE_LEFT:   s_wantStrafeLeft = state != 0;  return;
+            case PORT_ACT_MOVE_RIGHT:  s_wantStrafeRight = state != 0; return;
+
+            // Digital turn stays on the analog axis (frame-rate-independent).
             case PORT_ACT_LEFT:        s_turnAxis = state ? -1.0f : 0.0f;   return; // turn left
             case PORT_ACT_RIGHT:       s_turnAxis = state ? 1.0f : 0.0f;    return; // turn right
-            case PORT_ACT_MOVE_LEFT:   s_strafeAxis = state ? -1.0f : 0.0f; return;
-            case PORT_ACT_MOVE_RIGHT:  s_strafeAxis = state ? 1.0f : 0.0f;  return;
 
             // Held aliases.
             case PORT_ACT_STRAFE:      s_wantStrafeMod = state != 0;   return; // hold: Left/Right turn -> strafe
@@ -337,6 +366,23 @@ static void applyAnalogAxis(UViewport *vp, int reservedKey, float magnitude, flo
     vp->Input->Process(*GLog, (EInputKey)reservedKey, IST_Axis, magnitude * 100.0f * deltaSeconds);
 }
 
+// Press/release a reserved key exactly like a real keyboard key, then let UE1's
+// own ReadInput() pump apply IST_Hold at full Speed every tick while held - the
+// digital movement path, one level below a WASD scancode. v400 split the
+// KeyDownTable maintenance out of Process() into a separate PreProcess() (the
+// engine's own dispatch, UEngine::InputEvent, calls both in order), so both
+// must be called here - Process() alone never marks the key held and ReadInput
+// never pumps it.
+static void applyKeyHold(UViewport *vp, int reservedKey, bool want, bool &held)
+{
+    if (want == held)
+        return;
+    EInputAction state = want ? IST_Press : IST_Release;
+    vp->Input->PreProcess((EInputKey)reservedKey, state, 0.0f);
+    vp->Input->Process(*GLog, (EInputKey)reservedKey, state, 0.0f);
+    held = want;
+}
+
 // Transition-on-change hold of a real alias (Fire/Duck/...), bracketed by the
 // press/release input-action state Process() would set.
 static void applyAliasHold(UViewport *vp, const char *aliasName, bool want, bool &held)
@@ -364,6 +410,14 @@ extern "C" void UT99_TickPortableActions()
     applyAnalogAxis(vp, RK_MOVE_AXIS, s_moveAxis, deltaSeconds);
     applyAnalogAxis(vp, RK_TURN_AXIS, s_turnAxis, deltaSeconds);
     applyAnalogAxis(vp, RK_STRAFE_AXIS, s_strafeAxis, deltaSeconds);
+
+    static bool heldFwd = false, heldBack = false;
+    static bool heldStrafeLeft = false, heldStrafeRight = false;
+
+    applyKeyHold(vp, RK_FWD_KEY, s_wantFwd, heldFwd);
+    applyKeyHold(vp, RK_BACK_KEY, s_wantBack, heldBack);
+    applyKeyHold(vp, RK_STRAFE_LEFT_KEY, s_wantStrafeLeft, heldStrafeLeft);
+    applyKeyHold(vp, RK_STRAFE_RIGHT_KEY, s_wantStrafeRight, heldStrafeRight);
 
     static bool heldFire = false, heldAltFire = false, heldDuck = false;
     static bool heldWalk = false, heldStrafeMod = false;
